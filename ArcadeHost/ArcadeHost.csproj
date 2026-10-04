@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The jailed Arcade script helper: the ONLY production project referencing Jint.
+       Radiata.exe launches it inside an AppContainer under a Job Object and talks to it over an
+       ACL'd named pipe; it never loads into the process holding the cloak and virtual pad.
+       WinExe so it can never flash a console; it has no UI of any kind. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <PlatformTarget>x64</PlatformTarget>
+    <AssemblyName>Radiata.ArcadeHost</AssemblyName>
+    <RootNamespace>ControllerWheel.ArcadeHost</RootNamespace>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>false</UseWPF>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Shared SOURCE, not an assembly reference: the helper and the app compile the same
+         protocol file, so the wire format cannot drift, while the helper's dependency closure
+         stays small enough to stage-copy for the AppContainer dev-path fallback. -->
+    <Compile Include="..\Core\Arcade\Script\ScriptProtocol.cs" Link="Shared\ScriptProtocol.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Jint" Version="4.16.0" />
+  </ItemGroup>
+
+</Project>

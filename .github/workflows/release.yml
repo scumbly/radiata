@@ -1,0 +1,209 @@
+# Build + package + (optionally) sign a Radiata release.
+#
+# Trigger: push a tag like `v0.9.21`, or run manually (workflow_dispatch).
+# Output: `Radiata-<ver>-setup.exe` (the only published artifact) + `latest.json` attached to a
+# DRAFT GitHub Release. This workflow does not publish the update feed: after publishing the release,
+# upload latest.json to the site's update/ directory (getradiata.app/update), where the in-app updater
+# reads it — see docs/INSTALLER.md ▸ the release ritual.
+#
+# SIGNING uses Azure Artifact Signing and is GATED on the repo variable SIGNING_ENABLED == 'true';
+# unset, the workflow builds + releases UNSIGNED. To enable:
+#   1. Complete Individual identity validation; create an Artifact Signing account and a Public Trust
+#      certificate profile; create an Entra app registration with a GitHub OIDC federated credential
+#      for this repo, holding the "Artifact Signing Certificate Profile Signer" role.
+#   2. Add repo secrets  AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID  and repo variables
+#      ARTIFACT_SIGNING_ENDPOINT, ARTIFACT_SIGNING_ACCOUNT, ARTIFACT_SIGNING_PROFILE, SIGNING_ENABLED=true.
+#   3. Confirm the action inputs below against the action's current README.
+# Signing is two passes (docs/INSTALLER.md, Signing): the inner executables (Radiata.exe and
+# ArcadeHost\Radiata.ArcadeHost.exe) are signed in the staging folder BEFORE the Inno compile, then the
+# SETUP EXE is signed, since it is the file users double-click. The helper manifest is refreshed after
+# the inner pass (the helper exe's bytes change) and latest.json is (re)hashed AFTER the setup exe is
+# signed, so the feed always matches the released bytes. Each signed file is verified.
+#
+# Supply-chain: every `uses:` is pinned to a full commit SHA (tags are movable pointers; a SHA is not).
+# The trailing comment records the version each SHA was verified against (git ls-remote).
+# Updates arrive as Dependabot PRs (.github/dependabot.yml) that bump the SHA and comment together —
+# review them; never hand-edit back to a tag.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write        # create the GitHub Release
+  id-token: write        # OIDC for azure/login (Artifact Signing)
+
+jobs:
+  build:
+    runs-on: windows-latest
+    # The Entra federated credential trusts subject ...:environment:release. A tag-scoped credential
+    # would match only one tag, so the job must keep running in this environment for azure/login.
+    environment: release
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+        with:
+          dotnet-version: '8.0.x'
+
+      # The Arcade's sound set is licensed and NOT in this repository (THIRD-PARTY-LICENSES.md §4c); the music
+      # beds are (§4d). The release build fetches the sound set from a private location: repo secret
+      # ARCADE_SFX_URL (a zip of Assets/sfx/arcade/ made by tools/pack-arcade-assets.ps1) verified against
+      # repo variable ARCADE_SFX_SHA256. The step is gated on that VARIABLE: a step's own `env` is not
+      # visible to its `if`, and secrets can't appear in `if`. With it unset the step is skipped and the
+      # build proceeds without game sounds — forks and the mirror's own CI still build. A hash mismatch FAILS the build.
+      - name: Fetch the Arcade sound set (private)
+        if: ${{ vars.ARCADE_SFX_SHA256 != '' }}
+        env:
+          ARCADE_SFX_URL: ${{ secrets.ARCADE_SFX_URL }}
+          ARCADE_SFX_SHA256: ${{ vars.ARCADE_SFX_SHA256 }}
+        shell: pwsh
+        run: |
+          $zip = Join-Path $env:RUNNER_TEMP 'arcade-sfx.zip'
+          Invoke-WebRequest -Uri $env:ARCADE_SFX_URL -OutFile $zip -MaximumRetryCount 3
+          $have = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ([string]::IsNullOrWhiteSpace($env:ARCADE_SFX_SHA256) -or $have -ne $env:ARCADE_SFX_SHA256.ToLowerInvariant()) {
+            throw "arcade-sfx.zip SHA-256 $have does not match ARCADE_SFX_SHA256 '$env:ARCADE_SFX_SHA256'"
+          }
+          # The zip carries the folder at its repo-relative path, so it expands over the checkout root.
+          Expand-Archive -Path $zip -DestinationPath . -Force
+          $n = @(Get-ChildItem 'Assets/sfx/arcade' -Filter *.wav -ErrorAction SilentlyContinue).Count
+          if ($n -lt 1) { throw 'the assets zip held no Assets/sfx/arcade/*.wav' }
+          Write-Host "Arcade sound set: $n samples"
+
+      # Version = <ReleaseMajor>.<ReleaseMinor>.<build.minor>, matching the exact number the app reports
+      # (the build number in build.minor never resets when ReleaseMinor bumps). The date field of the
+      # app's four-part version is intentionally dropped from the name.
+      - name: Derive version
+        id: ver
+        shell: pwsh
+        run: |
+          $major = (Select-Xml -Path 'ControllerWheel.csproj' -XPath '//ReleaseMajor').Node.InnerText.Trim()
+          $minor = (Select-Xml -Path 'ControllerWheel.csproj' -XPath '//ReleaseMinor').Node.InnerText.Trim()
+          $build = (Get-Content 'build.minor' -Raw).Trim()
+          $v = "$major.$minor.$build"
+          # The tag that triggered the run must name this exact version, or latest.json points at a release
+          # asset that does not exist and every installed copy's updater breaks.
+          if ('${{ github.ref_type }}' -eq 'tag' -and '${{ github.ref_name }}' -ne "v$v") {
+            throw "Tag '${{ github.ref_name }}' does not match the source version v$v (ReleaseMajor.ReleaseMinor.build.minor). Export and tag the same commit."
+          }
+          "version=$v"                     >> $env:GITHUB_OUTPUT
+          "setup=Radiata-$v-setup.exe"     >> $env:GITHUB_OUTPUT
+          Write-Host "Radiata version: $v"
+
+      # build-installer.ps1 needs ISCC.exe; windows-latest doesn't ship Inno Setup 6.
+      - name: Install Inno Setup 6
+        shell: pwsh
+        run: choco install innosetup --yes --no-progress
+
+      # Same script as the local ritual (docs/INSTALLER.md), run in two halves with the inner signing
+      # between them. This half publishes Radiata single-file + ArcadeHost self-contained, strips PDBs,
+      # records the version in the staging folder and writes its path to publish/staging-path.txt. It
+      # does not refresh the helper manifest and writes no latest.json.
+      - name: Build installer - stage the payload
+        id: stage
+        shell: pwsh
+        run: |
+          ./tools/build-installer.ps1 -Public -StageOnly
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $dir = (Get-Content 'publish/staging-path.txt' -Raw).Trim()
+          if (-not (Test-Path -LiteralPath $dir -PathType Container)) { throw "Staging path '$dir' does not exist." }
+          "dir=$dir" >> $env:GITHUB_OUTPUT
+
+      # ── SIGNING, FIRST PASS: the inner executables (gated on SIGNING_ENABLED) ───────────────────
+      # Signs them in the staging folder with Azure Artifact Signing (the key stays in Microsoft's HSM;
+      # none touches CI) before the Inno compile packs them. The bundled Nefarius drivers are already
+      # signed. Signing rewrites the helper exe, so the compile step below refreshes the helper manifest.
+      - name: Azure login (OIDC)
+        if: ${{ vars.SIGNING_ENABLED == 'true' }}
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Artifact Signing - sign the inner executables
+        if: ${{ vars.SIGNING_ENABLED == 'true' }}
+        uses: azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0
+        with:
+          endpoint: ${{ vars.ARTIFACT_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.ARTIFACT_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.ARTIFACT_SIGNING_PROFILE }}
+          files: |
+            ${{ steps.stage.outputs.dir }}\Radiata.exe
+            ${{ steps.stage.outputs.dir }}\ArcadeHost\Radiata.ArcadeHost.exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      # An unsigned or untimestamped inner exe fails the run here, before it can be packed into the setup exe.
+      - name: Verify inner signatures
+        if: ${{ vars.SIGNING_ENABLED == 'true' }}
+        shell: pwsh
+        env:
+          STAGING_DIR: ${{ steps.stage.outputs.dir }}
+        run: ./tools/verify-signature.ps1 (Join-Path $env:STAGING_DIR 'Radiata.exe') (Join-Path $env:STAGING_DIR 'ArcadeHost\Radiata.ArcadeHost.exe')
+      # ── END FIRST PASS ─────────────────────────────────────────────────────────────────────────
+
+      # Second half of the script: refreshes the helper manifest from the (possibly signed) helper files,
+      # runs the Help silo check, compiles radiata.iss from the staging folder, hashes the setup exe and
+      # writes publish/latest.json (rewritten below once the setup exe is signed). With signing disabled
+      # the two halves pack the same payload as a one-shot run.
+      - name: Build installer - compile the setup exe
+        shell: pwsh
+        env:
+          STAGING_DIR: ${{ steps.stage.outputs.dir }}
+        run: ./tools/build-installer.ps1 -Public -FromStaging $env:STAGING_DIR
+
+      # ── SIGNING, SECOND PASS: the setup exe (gated on SIGNING_ENABLED) ──────────────────────────
+      # Signs the setup exe in place before the feed is hashed. The Azure login above is still in effect.
+      - name: Artifact Signing - sign the setup exe
+        if: ${{ vars.SIGNING_ENABLED == 'true' }}
+        uses: azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0
+        with:
+          endpoint: ${{ vars.ARTIFACT_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.ARTIFACT_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.ARTIFACT_SIGNING_PROFILE }}
+          files: ${{ github.workspace }}\publish\${{ steps.ver.outputs.setup }}
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      # Fails the run rather than drafting a release whose exe is unsigned or untimestamped: without a
+      # timestamp the signature dies with the short-lived certificate (days), not with the release.
+      - name: Verify setup exe signature
+        if: ${{ vars.SIGNING_ENABLED == 'true' }}
+        shell: pwsh
+        run: ./tools/verify-signature.ps1 "publish/${{ steps.ver.outputs.setup }}"
+      # ── END SECOND PASS ────────────────────────────────────────────────────────────────────────
+
+      # Rewrite latest.json against the FINAL setup exe: signing rewrites the file, so the sha256
+      # build-installer.ps1 computed would no longer match. Runs unconditionally — on the unsigned
+      # path it reproduces the same hash, and the feed on disk is always the one to upload.
+      - name: Finalize latest.json
+        shell: pwsh
+        run: |
+          $v     = '${{ steps.ver.outputs.version }}'
+          $setup = "publish/${{ steps.ver.outputs.setup }}"
+          $sha   = (Get-FileHash -Algorithm SHA256 $setup).Hash.ToLowerInvariant()
+          $json  = "{`"version`":`"$v`",`"url`":`"https://github.com/scumbly/radiata/releases/download/v$v/Radiata-$v-setup.exe`",`"sha256`":`"$sha`",`"notesUrl`":`"https://github.com/scumbly/radiata/releases/tag/v$v`"}"
+          [System.IO.File]::WriteAllText('publish/latest.json', $json, (New-Object System.Text.UTF8Encoding($false)))
+          Write-Host "latest.json sha256: $sha"
+
+      - name: Draft GitHub Release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
+        with:
+          name: Radiata ${{ steps.ver.outputs.version }}
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', steps.ver.outputs.version) }}
+          draft: true
+          files: |
+            publish/${{ steps.ver.outputs.setup }}
+            publish/latest.json
+          body: |
+            Radiata ${{ steps.ver.outputs.version }} — Windows installer (win-x64).
+
+            Download and run `${{ steps.ver.outputs.setup }}`. Installs per-user; the only admin
+            prompts are the two bundled Nefarius driver installers. Existing installs update
+            themselves — no need to download anything.

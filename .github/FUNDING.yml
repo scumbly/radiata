@@ -1,0 +1,6 @@
+# Renders the "Sponsor" button on the public mirror's repo page.
+# Keep in sync with the Tip Jar links in SettingsWindow.xaml and OnboardingWindow.xaml,
+# which point at getradiata.app/tip.
+github: [scumbly]
+ko_fi: getradiata
+custom: ["https://getradiata.app/tip"]

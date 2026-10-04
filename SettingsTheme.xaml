@@ -1,0 +1,355 @@
+<!-- Shared look for the Settings surfaces (merged into SettingsWindow's window-level resources;
+     deliberately NOT app-wide, so the overlay/onboarding/wizard windows keep their own styling).
+     Palette references the app-wide chrome resources in App.xaml (UiWindowBg family + HeadingInk) —
+     retone the app there. -->
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:local="clr-namespace:ControllerWheel">
+
+  <!-- ── Shared keyboard-focus visual ──
+       The tile grids / Help rows / icon well are focusable (InvokableBorder); without this they'd get
+       WPF's default dotted rectangle, drawn outside the element bounds. A rounded accent outline inset
+       1px instead, matching SelectTile's selection ring in weight so focus and selection read as
+       siblings. -->
+  <Style x:Key="AccessFocusVisual" TargetType="Control">
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate>
+          <Rectangle Margin="1" RadiusX="7" RadiusY="7" StrokeThickness="2"
+                     Stroke="#1CA8C9" StrokeDashArray="1 1" SnapsToDevicePixels="True"/>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <!-- ── Buttons: white at rest, light tint on hover, 4px rounded corners, flat modern chrome ── -->
+  <Style TargetType="Button">
+    <Setter Property="Background" Value="White"/>
+    <Setter Property="BorderBrush" Value="{StaticResource UiBorder}"/>
+    <Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="Foreground" Value="{StaticResource UiBodyInk}"/>
+    <Setter Property="Padding" Value="9,4"/>
+    <Setter Property="SnapsToDevicePixels" Value="True"/>
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="Button">
+          <Border x:Name="Bd" Background="{TemplateBinding Background}"
+                  BorderBrush="{TemplateBinding BorderBrush}"
+                  BorderThickness="{TemplateBinding BorderThickness}"
+                  CornerRadius="4" SnapsToDevicePixels="True">
+            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                              Margin="{TemplateBinding Padding}" RecognizesAccessKey="True"/>
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsDefault" Value="True">
+              <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource UiBorderDefaultBtn}"/>
+            </Trigger>
+            <Trigger Property="IsMouseOver" Value="True">
+              <Setter TargetName="Bd" Property="Background" Value="{StaticResource UiHoverBg}"/>
+              <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource UiBorderHover}"/>
+            </Trigger>
+            <Trigger Property="IsPressed" Value="True">
+              <Setter TargetName="Bd" Property="Background" Value="{StaticResource UiPressedBg}"/>
+            </Trigger>
+            <Trigger Property="IsKeyboardFocused" Value="True">
+              <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource UiBorderFocus}"/>
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+              <Setter Property="Opacity" Value="0.45"/>
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <!-- ── Tabs: slightly larger, rounded TOP corners; selected blends into the page ── -->
+  <Style TargetType="TabItem">
+    <Setter Property="FontSize" Value="13.5"/>
+    <Setter Property="Padding" Value="14,6"/>
+    <Setter Property="Foreground" Value="{StaticResource UiTabInk}"/>
+    <Setter Property="SnapsToDevicePixels" Value="True"/>
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="TabItem">
+          <!-- Bottom margin -1 lets the selected tab overlap the content border so it reads attached. -->
+          <Border x:Name="Bd" Background="{StaticResource UiTabRestBg}" BorderBrush="{StaticResource UiBorder}" BorderThickness="1,1,1,0"
+                  CornerRadius="7,7,0,0" Margin="0,2,3,0" Padding="{TemplateBinding Padding}"
+                  SnapsToDevicePixels="True">
+            <ContentPresenter ContentSource="Header" HorizontalAlignment="Center" VerticalAlignment="Center"
+                              RecognizesAccessKey="True"/>
+          </Border>
+          <ControlTemplate.Triggers>
+            <MultiTrigger>
+              <MultiTrigger.Conditions>
+                <Condition Property="IsMouseOver" Value="True"/>
+                <Condition Property="IsSelected" Value="False"/>
+              </MultiTrigger.Conditions>
+              <Setter TargetName="Bd" Property="Background" Value="{StaticResource UiTabHoverBg}"/>
+            </MultiTrigger>
+            <Trigger Property="IsSelected" Value="True">
+              <Setter TargetName="Bd" Property="Background" Value="{StaticResource UiWindowBg}"/>
+              <Setter TargetName="Bd" Property="Margin" Value="0,0,3,-1"/>
+              <Setter Property="Foreground" Value="{StaticResource HeadingInk}"/>
+              <Setter Property="FontWeight" Value="SemiBold"/>
+              <Setter Property="Panel.ZIndex" Value="1"/>
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+              <Setter Property="Opacity" Value="0.45"/>
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <!-- The non-wheel window tabs (Customize … About): 2/3 the height of the full-size tab above, so the
+       wheel pair reads as the primary pair. Same chrome/template — only the vertical padding and an
+       explicit height change. TabPanel bottom-aligns headers, so these still sit on the content edge.
+       Used only from SettingsWindow.xaml itself, where this dictionary is merged at the window level —
+       a UserControl would have to reach it via DynamicResource. -->
+  <Style x:Key="ShortTabItem" TargetType="TabItem" BasedOn="{StaticResource {x:Type TabItem}}">
+    <Setter Property="Padding" Value="14,0"/>
+    <Setter Property="Height" Value="26"/>
+    <!-- TabPanel CENTERS a short header in the row, which leaves it floating above the content border;
+         bottom alignment sits it back down on the edge like the full-height tabs. -->
+    <Setter Property="VerticalAlignment" Value="Bottom"/>
+  </Style>
+
+  <!-- Nested sub-tabs (the slice editor's Action category tabs): the ORIGINAL smaller size and a
+       lighter header family than the big window tabs, keeping the new text colors. Applied per-use
+       via ItemContainerStyle (DynamicResource — UserControls resolve it from the host window). -->
+  <Style x:Key="SubTabItem" TargetType="TabItem">
+    <Setter Property="FontSize" Value="12"/>
+    <Setter Property="Padding" Value="6,2"/>
+    <Setter Property="Foreground" Value="{StaticResource UiTabInk}"/>
+    <Setter Property="SnapsToDevicePixels" Value="True"/>
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="TabItem">
+          <!-- No weight change on select (a width shift could wrap the row); WHITE selected header
+               blends into the tab's white content area. -->
+          <Border x:Name="Bd" Background="{StaticResource UiSubTabRestBg}" BorderBrush="{StaticResource UiSubTabBorder}" BorderThickness="1,1,1,0"
+                  CornerRadius="3,3,0,0" Margin="0,2,1,0" Padding="{TemplateBinding Padding}"
+                  SnapsToDevicePixels="True">
+            <ContentPresenter ContentSource="Header" HorizontalAlignment="Center" VerticalAlignment="Center"
+                              RecognizesAccessKey="True"/>
+          </Border>
+          <ControlTemplate.Triggers>
+            <MultiTrigger>
+              <MultiTrigger.Conditions>
+                <Condition Property="IsMouseOver" Value="True"/>
+                <Condition Property="IsSelected" Value="False"/>
+              </MultiTrigger.Conditions>
+              <Setter TargetName="Bd" Property="Background" Value="{StaticResource UiSubTabHoverBg}"/>
+            </MultiTrigger>
+            <Trigger Property="IsSelected" Value="True">
+              <Setter TargetName="Bd" Property="Background" Value="White"/>
+              <Setter TargetName="Bd" Property="Margin" Value="0,0,1,-1"/>
+              <Setter Property="Foreground" Value="{StaticResource HeadingInk}"/>
+              <Setter Property="Panel.ZIndex" Value="1"/>
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+              <Setter Property="Opacity" Value="0.45"/>
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <!-- Tab strip + content chrome in the same chrome family. -->
+  <Style TargetType="TabControl">
+    <Setter Property="Background" Value="{StaticResource UiWindowBg}"/>
+    <Setter Property="BorderBrush" Value="{StaticResource UiBorder}"/>
+    <Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="Padding" Value="2"/>
+  </Style>
+
+  <!-- ── Drop-downs: light tint, rounded corners, flat chrome (the default template ignores
+       Background on Aero, so this is a full retemplate — non-editable combos only, which is all
+       Settings uses). The open list stays a plain white rounded card. ── -->
+  <Style TargetType="ComboBox">
+    <Setter Property="Foreground" Value="{StaticResource UiBodyInk}"/>
+    <Setter Property="Background" Value="White"/>
+    <Setter Property="BorderBrush" Value="{StaticResource UiBorder}"/>
+    <!-- ComboBox only wires F4/Alt+Down to open by default — Space/Enter, the two keys most people try
+         first after Tab, do nothing without this. See ComboBoxKeyOpen.cs. -->
+    <Setter Property="local:ComboBoxKeyOpen.Enabled" Value="True"/>
+    <!-- Right padding clears the drop arrow so long selections never run under it. -->
+    <Setter Property="Padding" Value="9,4,28,4"/>
+    <!-- Every Settings combo sizes to its CURRENT selection, not a fixed width — see docs/SETTINGS-UI.md
+         ▸ Drop-downs size to their content. MinWidth/MaxWidth below are floors/caps, not sizes; a control
+         that needs a different floor overrides MinWidth locally (WheelEditorControl's TypeBox/SubTypeBox). -->
+    <Setter Property="HorizontalAlignment" Value="Left"/>
+    <Setter Property="MinWidth" Value="120"/>
+    <Setter Property="MaxWidth" Value="380"/>
+    <Setter Property="SnapsToDevicePixels" Value="True"/>
+    <Setter Property="ScrollViewer.CanContentScroll" Value="True"/>
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="ComboBox">
+          <Grid>
+            <ToggleButton x:Name="Toggle" Focusable="False" ClickMode="Press"
+                          IsChecked="{Binding IsDropDownOpen, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}">
+              <ToggleButton.Template>
+                <ControlTemplate TargetType="ToggleButton">
+                  <Border x:Name="Bd" CornerRadius="4" SnapsToDevicePixels="True"
+                          Background="{Binding Background, RelativeSource={RelativeSource AncestorType=ComboBox}}"
+                          BorderBrush="{Binding BorderBrush, RelativeSource={RelativeSource AncestorType=ComboBox}}"
+                          BorderThickness="1">
+                    <Path HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,1,9,0"
+                          Data="M 0 0 L 4 4 L 8 0 Z" Fill="{StaticResource UiMutedInk}"/>
+                  </Border>
+                  <ControlTemplate.Triggers>
+                    <Trigger Property="IsMouseOver" Value="True">
+                      <Setter TargetName="Bd" Property="Background" Value="{StaticResource UiHoverBg}"/>
+                      <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource UiBorderHover}"/>
+                    </Trigger>
+                    <Trigger Property="IsChecked" Value="True">
+                      <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource UiBorderFocus}"/>
+                    </Trigger>
+                  </ControlTemplate.Triggers>
+                </ControlTemplate>
+              </ToggleButton.Template>
+            </ToggleButton>
+            <!-- Clipping wrapper: a selection longer than the combo's width must truncate at the right
+                 padding instead of painting under the drop arrow (WPF doesn't clip a ContentPresenter's
+                 overflow by default — seen on the narrow Triggers builder combos). -->
+            <Border Margin="{TemplateBinding Padding}" ClipToBounds="True" IsHitTestVisible="False">
+              <ContentPresenter HorizontalAlignment="Left" VerticalAlignment="Center"
+                                Content="{TemplateBinding SelectionBoxItem}"
+                                ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}"
+                                ContentStringFormat="{TemplateBinding SelectionBoxItemStringFormat}"/>
+            </Border>
+            <Popup IsOpen="{TemplateBinding IsDropDownOpen}" Placement="Bottom" StaysOpen="False"
+                   AllowsTransparency="True" PopupAnimation="Slide">
+              <Border Background="White" BorderBrush="{StaticResource UiBorder}" BorderThickness="1" CornerRadius="4"
+                      Margin="0,2,4,4" MinWidth="{TemplateBinding ActualWidth}"
+                      MaxHeight="{TemplateBinding MaxDropDownHeight}" SnapsToDevicePixels="True">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                  <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Contained"/>
+                </ScrollViewer>
+              </Border>
+            </Popup>
+          </Grid>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsEnabled" Value="False">
+              <Setter Property="Opacity" Value="0.45"/>
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <!-- ── Links (the Help-chip jumps + About links): muted ink, no underline, darken on hover ── -->
+  <Style TargetType="Hyperlink">
+    <Setter Property="Foreground" Value="{StaticResource UiMutedInk}"/>
+    <Setter Property="TextDecorations" Value="{x:Null}"/>
+    <Style.Triggers>
+      <Trigger Property="IsMouseOver" Value="True">
+        <Setter Property="Foreground" Value="{StaticResource HeadingInk}"/>
+      </Trigger>
+    </Style.Triggers>
+  </Style>
+
+  <!-- ⚠ Reference this as {DynamicResource HelpChip}, never StaticResource: this dictionary is merged at
+       the WINDOW level (SettingsWindow), so it is NOT in scope when the editor
+       UserControls that use the chip are parsed — a StaticResource lookup throws "Cannot find resource
+       named 'HelpChip'" and takes the whole Settings window down on open. Same trap the SubTabItem style
+       documents in WheelEditorControl.xaml. -->
+  <!-- The circled "?" that opens a Help topic, as a real Button — a Button owns its input outright, so
+       its whole surface (the Grid's transparent fill, corners included) is one generous click target.
+       Don't rebuild this as an element inside an InlineUIContainer inside a Hyperlink: the embedded
+       element handles input itself, so most of the chip becomes a dead click. Colours mirror the
+       Hyperlink style above; per-instance Width/Height and FontSize set the three sizes (13/15/19 px). -->
+  <Style x:Key="HelpChip" TargetType="Button">
+    <Setter Property="Foreground" Value="{StaticResource UiMutedInk}"/>
+    <!-- Resting chips sit at half opacity so they recede from the headings they annotate; hover and
+         keyboard focus both take them back to full. Focus is not optional here — the chip is a Tab stop
+         for screen-reader users, and a focused control that stays faded reads as disabled. -->
+    <Setter Property="Opacity" Value="0.5"/>
+    <Setter Property="Background" Value="Transparent"/>
+    <Setter Property="BorderThickness" Value="0"/>
+    <Setter Property="Padding" Value="0"/>
+    <Setter Property="Cursor" Value="Hand"/>
+    <!-- Focusable="True" for accessibility: a help chip that is neither focusable nor named is invisible to
+         a screen reader — Narrator can't reach it by Tab and has nothing to announce. Each instance also
+         carries an AutomationProperties.Name naming the topic it opens. -->
+    <Setter Property="Focusable" Value="True"/>
+    <Setter Property="Width" Value="15"/>
+    <Setter Property="Height" Value="15"/>
+    <Setter Property="FontSize" Value="10"/>
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="Button">
+          <!-- Grid Background="Transparent" makes the whole square hit-testable — a null background
+               is see-through to hit tests. -->
+          <Grid Background="Transparent">
+            <Ellipse Stroke="{TemplateBinding Foreground}" StrokeThickness="1.4" Fill="Transparent"/>
+            <!-- ⚠ A RenderTransform, not a Margin: under VerticalAlignment="Center" a margin shifts the
+                 element by HALF its value, so a margin nudge is twice as coarse as it reads. The transform
+                 moves the glyph exactly and costs no layout pass.
+                 ⚠ UP (negative), and don't flip it: WPF centres the LINE BOX, and "?" has no descender, so
+                 the empty descent space below the ink is smaller than the space above it and the glyph
+                 lands LOW of the ellipse's centre. Measured off Segoe UI Bold's ink bounds against the line
+                 box: -0.64 at FontSize 10, -0.83 at 13 (the two sizes this chip is used at), i.e. a near
+                 constant -0.064 x FontSize. One value serves both to within 0.13px, which is why this is a
+                 constant and not a converter. T_Hygiene re-measures it and fails if it drifts. -->
+            <TextBlock Text="?" FontWeight="Bold" FontSize="{TemplateBinding FontSize}"
+                       Foreground="{TemplateBinding Foreground}"
+                       HorizontalAlignment="Center" VerticalAlignment="Center">
+              <TextBlock.RenderTransform>
+                <TranslateTransform Y="-0.7"/>
+              </TextBlock.RenderTransform>
+            </TextBlock>
+          </Grid>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+    <Style.Triggers>
+      <Trigger Property="IsMouseOver" Value="True">
+        <Setter Property="Foreground" Value="{StaticResource HeadingInk}"/>
+        <Setter Property="Opacity" Value="1"/>
+      </Trigger>
+      <Trigger Property="IsKeyboardFocused" Value="True">
+        <Setter Property="Opacity" Value="1"/>
+      </Trigger>
+    </Style.Triggers>
+  </Style>
+
+  <!-- The "✕" that dismisses a notice card. Same DynamicResource-only rule and the same
+       whole-square hit target as HelpChip above, but deliberately NOT a variant of it: HelpChip's
+       template hardcodes its "?" and ignores Content, so setting Content on it renders nothing.
+       No ellipse — a bare ✕ reads as "close" where a circled one reads as another chip to press. -->
+  <Style x:Key="DismissChip" TargetType="Button">
+    <Setter Property="Foreground" Value="{StaticResource UiMutedInk}"/>
+    <Setter Property="Background" Value="Transparent"/>
+    <Setter Property="BorderThickness" Value="0"/>
+    <Setter Property="Padding" Value="0"/>
+    <Setter Property="Cursor" Value="Hand"/>
+    <Setter Property="Focusable" Value="True"/>
+    <Setter Property="Width" Value="15"/>
+    <Setter Property="Height" Value="15"/>
+    <Setter Property="FontSize" Value="11"/>
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="Button">
+          <Grid Background="Transparent">
+            <TextBlock Text="✕" FontSize="{TemplateBinding FontSize}"
+                       Foreground="{TemplateBinding Foreground}"
+                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+          </Grid>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+    <Style.Triggers>
+      <Trigger Property="IsMouseOver" Value="True">
+        <Setter Property="Foreground" Value="{StaticResource HeadingInk}"/>
+      </Trigger>
+    </Style.Triggers>
+  </Style>
+
+</ResourceDictionary>

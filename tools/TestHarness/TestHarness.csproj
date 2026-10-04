@@ -1,0 +1,51 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Headless test harness for the checks that don't need a controller in a
+       hand. Same shape as SettingsSmokeProbe: NOT part of the app build (the root csproj excludes
+       tools\**), references Radiata.dll out of the Debug output rather than the project, so building the
+       harness can never perturb the app's build. Build Radiata first.
+       Run:  dotnet run [dash dash]project tools\TestHarness [dash dash] <group> [<group> ...]
+       Exit code 0 = every check in the requested groups passed; non-zero = failure count. -->
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>disable</Nullable>
+    <AssemblyName>TestHarness</AssemblyName>
+    <RootNamespace>Radiata.TestHarness</RootNamespace>
+    <DisableWinExeOutputInference>true</DisableWinExeOutputInference>
+    <!-- Same version-unification noise as the smoke probe: referencing Radiata.dll straight out of its
+         output folder drags its NuGet deps in as bare assembly references. -->
+    <NoWarn>$(NoWarn);MSB3277</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The app pulls System.Text.Json 10 in transitively, so its assemblies are compiled against 10.0.0.
+         Without the same reference here the harness process ends up with the framework's 8.x loaded first and
+         the app's types then fail to bind ("Could not load … Version=10.0.0.0"). Referencing the package
+         unifies every reference on 10, exactly as it does in the app's own build. -->
+    <PackageReference Include="System.Text.Json" Version="10.0.8" />
+    <!-- SQLite's NATIVE asset (e_sqlite3.dll) can't come from the managed-assembly resolver, and without it
+         the itch + Amazon scanners fail inside the harness only — which would read as "those stores have no
+         games" rather than "this process can't open a database". Same versions as the app. -->
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.18" />
+    <!-- Referenced so the harness can enumerate audio endpoints ITSELF: AudioDeviceSwitcher.OutputCount()
+         returns 0 on any failure, so without a direct probe "0 devices" is indistinguishable from "the COM
+         call threw in this process". -->
+    <PackageReference Include="NAudio" Version="2.3.0" />
+    <!-- Read-only access to the driver's own blocklist for the cloak-recovery sequence. -->
+    <PackageReference Include="Nefarius.Drivers.HidHide" Version="3.4.0" />
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.12" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="Radiata">
+      <HintPath>..\..\bin\Debug\net8.0-windows\Radiata.dll</HintPath>
+    </Reference>
+    <Reference Include="Radiata.Core">
+      <HintPath>..\..\bin\Debug\net8.0-windows\Radiata.Core.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Rewrites Core\UiStrings.g.cs from every *.xaml at the repo root: the {loc:T ...} markup-extension
+       values and loc:LocRich.Source="..." attributes. XML is parsed as XML (XDocument): entities decode,
+       property-element forms are seen, and an attribute split across source lines is read whole, which a
+       line regex cannot do. Run from the repo root: dotnet run, project tools\ExtractStrings. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Radiata.ExtractStrings</RootNamespace>
+  </PropertyGroup>
+</Project>

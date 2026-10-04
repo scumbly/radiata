@@ -1,0 +1,80 @@
+<Window x:Class="ControllerWheel.DiagnosticWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:loc="clr-namespace:ControllerWheel"
+        Title="Controller Diagnostics" Width="740" Height="620"
+        WindowStartupLocation="CenterScreen" ResizeMode="CanResize">
+  <DockPanel Margin="10">
+
+    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+      <TextBlock x:Name="HeaderText" FontFamily="Consolas" FontSize="13"
+                 VerticalAlignment="Center" Text="{loc:T Waiting for controller…}"/>
+      <Button x:Name="BtnReset" Content="{loc:T Reset Baseline}" Padding="10,3"
+              Margin="16,0,0,0" Click="BtnReset_Click"/>
+      <TextBlock Text="{loc:T 'Hex grid is raw-HID only. Press Fn L, Fn R, and each D-pad direction — changed bytes flash yellow.'}"
+                 Foreground="#666" FontSize="12" VerticalAlignment="Center"/>
+    </StackPanel>
+
+    <!-- Semantic readout: fed by StateChanged, which BOTH backends raise. This is the only part of the
+         window an XInput (Xbox) pad can populate — the hex grid below is raw-HID only. -->
+    <Border DockPanel.Dock="Top" BorderBrush="#CCC" BorderThickness="1" Background="#1E1E1E"
+            Margin="0,0,0,8" Padding="6">
+      <StackPanel>
+        <TextBlock x:Name="BackendText" FontFamily="Consolas" FontSize="12" Foreground="#9AD"
+                   Text="{loc:T Backend: waiting…}" Margin="0,0,0,6"/>
+        <ItemsControl x:Name="ButtonPills">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate>
+              <Border Margin="2" Padding="7,3" CornerRadius="3"
+                      Background="{Binding Background}">
+                <TextBlock Text="{Binding Name}" Foreground="{Binding Foreground}"
+                           FontFamily="Consolas" FontSize="12" FontWeight="Bold"/>
+              </Border>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <TextBlock x:Name="AxisText" FontFamily="Consolas" FontSize="12" Foreground="#DDD"
+                   Margin="2,6,0,0" Text="{loc:T sticks / triggers: waiting…}"/>
+      </StackPanel>
+    </Border>
+
+    <!-- Hex grid: one cell per report byte, wrapped to the available width.
+         RAW-HID ONLY — stays empty on an Xbox pad by design; the panel above covers that case. -->
+    <Border DockPanel.Dock="Top" BorderBrush="#CCC" BorderThickness="1" Background="#1E1E1E">
+      <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="300">
+        <ItemsControl x:Name="ByteGrid" Margin="6" FlowDirection="LeftToRight">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate>
+              <WrapPanel/>
+            </ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate>
+              <Border Width="40" Height="40" Margin="1"
+                      Background="{Binding Background}" CornerRadius="3"
+                      ToolTip="{Binding Tip}">
+                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                  <TextBlock Text="{Binding Index}" Foreground="#888"
+                             FontFamily="Consolas" FontSize="9"
+                             HorizontalAlignment="Center"/>
+                  <TextBlock Text="{Binding Hex}" Foreground="{Binding Foreground}"
+                             FontFamily="Consolas" FontSize="13" FontWeight="Bold"
+                             HorizontalAlignment="Center"/>
+                </StackPanel>
+              </Border>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </ScrollViewer>
+    </Border>
+
+    <TextBlock x:Name="ChangedText" DockPanel.Dock="Bottom"
+               FontFamily="Consolas" FontSize="12" Foreground="#DDD"
+               Margin="0,8,0,0" TextWrapping="Wrap"
+               Text="{loc:T No changes yet.}"/>
+
+  </DockPanel>
+</Window>

@@ -1,0 +1,78 @@
+<Window x:Class="ControllerWheel.HidWizardWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:loc="clr-namespace:ControllerWheel"
+        Title="{loc:T Controller Setup}" Width="500" Height="340"
+        ResizeMode="NoResize" WindowStartupLocation="CenterScreen">
+
+  <Grid Margin="24">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="*"/>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="Auto"/>
+    </Grid.RowDefinitions>
+
+    <TextBlock x:Name="StepText" Grid.Row="0"
+               FontSize="11" Foreground="#888" Margin="0,0,0,10"/>
+
+    <!-- Instruction card (active during capture steps) -->
+    <Border x:Name="InstructionPanel" Grid.Row="1"
+            Background="#F7F7F7" BorderBrush="#DDD" BorderThickness="1"
+            CornerRadius="6" Padding="20">
+      <StackPanel VerticalAlignment="Center">
+        <TextBlock x:Name="InstructionText" FontSize="17" FontWeight="SemiBold"
+                   TextWrapping="Wrap" Margin="0,0,0,8"/>
+        <TextBlock x:Name="SubText" FontSize="12" Foreground="#666" TextWrapping="Wrap"/>
+      </StackPanel>
+    </Border>
+
+    <!-- Results card (shown at Done step) -->
+    <Border x:Name="ResultsPanel" Grid.Row="1" Visibility="Collapsed"
+            Background="#F7F7F7" BorderBrush="#DDD" BorderThickness="1"
+            CornerRadius="6" Padding="20">
+      <StackPanel>
+        <TextBlock Text="{loc:T Detected offsets:}" FontWeight="SemiBold" Margin="0,0,0,14"/>
+        <Grid>
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="110"/>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="24"/>
+          </Grid.ColumnDefinitions>
+          <Grid.RowDefinitions>
+            <RowDefinition Height="26"/>
+            <RowDefinition Height="26"/>
+            <RowDefinition Height="26"/>
+          </Grid.RowDefinitions>
+
+          <TextBlock Text="{loc:T Left Fn:}"   Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Foreground="#555"/>
+          <TextBlock Text="{loc:T Right Fn:}"  Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Foreground="#555"/>
+          <TextBlock Text="{loc:T D-pad:}"     Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Foreground="#555"/>
+
+          <TextBlock x:Name="ResFnLeft"  Grid.Row="0" Grid.Column="1" FontFamily="Consolas" FontSize="13" VerticalAlignment="Center"/>
+          <TextBlock x:Name="ResFnRight" Grid.Row="1" Grid.Column="1" FontFamily="Consolas" FontSize="13" VerticalAlignment="Center"/>
+          <TextBlock x:Name="ResDPad"    Grid.Row="2" Grid.Column="1" FontFamily="Consolas" FontSize="13" VerticalAlignment="Center"/>
+
+          <TextBlock x:Name="IcoFnLeft"  Grid.Row="0" Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+          <TextBlock x:Name="IcoFnRight" Grid.Row="1" Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+          <TextBlock x:Name="IcoDPad"    Grid.Row="2" Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+        </Grid>
+      </StackPanel>
+    </Border>
+
+    <TextBlock x:Name="StatusText" Grid.Row="2"
+               FontFamily="Consolas" FontSize="12" Foreground="#444"
+               Margin="0,10,0,10"/>
+
+    <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,4,0,0">
+      <Button x:Name="BtnRestart" Content="{loc:T Start Over}"      Padding="12,5" Margin="0,0,8,0"
+              Visibility="Collapsed" Click="BtnRestart_Click"/>
+      <Button x:Name="BtnSkip"    Content="{loc:T Skip This Button}" Padding="12,5" Margin="0,0,8,0"
+              Visibility="Collapsed" Click="BtnSkip_Click"/>
+      <Button x:Name="BtnSave"    Content="{loc:T Save and Apply}"   Padding="12,5" Margin="0,0,8,0"
+              Visibility="Collapsed" Click="BtnSave_Click"/>
+      <Button x:Name="BtnClose"   Content="{loc:T Close}"            Padding="12,5"
+              Click="BtnClose_Click"/>
+    </StackPanel>
+  </Grid>
+</Window>

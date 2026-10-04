@@ -1,0 +1,937 @@
+<Window x:Class="ControllerWheel.OnboardingWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:loc="clr-namespace:ControllerWheel"
+        xmlns:local="clr-namespace:ControllerWheel"
+        Title="{loc:T Radiata — First-Run Setup}" Width="680" Height="555"
+        WindowStartupLocation="CenterScreen" ResizeMode="NoResize"
+        Background="{StaticResource UiWindowBg}">
+  <Window.Resources>
+    <!-- Status rows on the Welcome step. -->
+    <Style x:Key="StatusGlyph" TargetType="TextBlock">
+      <Setter Property="FontSize" Value="16"/>
+      <Setter Property="Width" Value="26"/>
+      <Setter Property="VerticalAlignment" Value="Top"/>
+      <Setter Property="Margin" Value="0,1,0,0"/>
+    </Style>
+    <Style x:Key="StatusName" TargetType="TextBlock">
+      <Setter Property="FontSize" Value="14"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+    </Style>
+    <Style x:Key="StatusDetail" TargetType="TextBlock">
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="Foreground" Value="#77000000"/>
+      <Setter Property="TextWrapping" Value="Wrap"/>
+      <Setter Property="Margin" Value="0,1,0,0"/>
+    </Style>
+    <Style x:Key="Body" TargetType="TextBlock">
+      <Setter Property="FontSize" Value="13"/>
+      <Setter Property="TextWrapping" Value="Wrap"/>
+      <Setter Property="Foreground" Value="#CC000000"/>
+      <Setter Property="LineHeight" Value="19"/>
+    </Style>
+    <!-- Tip-card family shared by the Roll-out step's good-to-know cards and the Welcome step's
+         controller-caveat card. Two glyph/text tiers: Big is the arrival size for Roll-out's four headline
+         cards; everything drops to Medium once "More Tips…" is clicked and the rest of the pool joins them.
+         The Welcome caveat card sizes its own text in ApplyWelcomeLayout (Body tier in the padOnly layout). -->
+    <Style x:Key="CaveatCard" TargetType="Border">
+      <Setter Property="Background" Value="#06000000"/>
+      <Setter Property="CornerRadius" Value="8"/>
+      <Setter Property="Padding" Value="12,10"/>
+      <Setter Property="Margin" Value="4"/>
+      <Setter Property="VerticalAlignment" Value="Top"/>   <!-- size to content; columns aren't height-locked -->
+    </Style>
+    <Style x:Key="CardGlyphBig" TargetType="TextBlock">
+      <Setter Property="FontSize" Value="32"/>
+      <Setter Property="Width" Value="44"/>
+      <Setter Property="Margin" Value="0,0,10,0"/>
+      <Setter Property="VerticalAlignment" Value="Top"/>
+    </Style>
+    <Style x:Key="CardTextBig" TargetType="TextBlock" BasedOn="{StaticResource Body}">
+      <Setter Property="FontSize" Value="15"/>
+      <Setter Property="LineHeight" Value="20"/>
+    </Style>
+    <Style x:Key="CardGlyphMedium" TargetType="TextBlock">
+      <Setter Property="FontSize" Value="18"/>
+      <Setter Property="Width" Value="24"/>
+      <Setter Property="Margin" Value="0,0,6,0"/>
+      <Setter Property="VerticalAlignment" Value="Top"/>
+    </Style>
+    <Style x:Key="CardTextMedium" TargetType="TextBlock" BasedOn="{StaticResource Body}">
+      <Setter Property="FontSize" Value="10.5"/>
+      <Setter Property="LineHeight" Value="14"/>
+    </Style>
+    <!-- The circled "?" chip, matching Settings (SettingsTheme.xaml's HelpChip). Copied rather than merged:
+         SettingsTheme is a window-level dictionary of the Settings windows and isn't in scope here. Keyed,
+         so the implicit Button style below doesn't reach it. Keep the two in step. -->
+    <Style x:Key="HelpChip" TargetType="Button">
+      <Setter Property="Foreground" Value="{StaticResource UiMutedInk}"/>
+      <!-- Resting chips sit at half opacity; hover and keyboard focus take them back to full. The focus
+           trigger is not optional: the chip is a Tab stop for screen-reader users, and a focused control
+           that stays faded reads as disabled. -->
+      <Setter Property="Opacity" Value="0.5"/>
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="Padding" Value="0"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Focusable" Value="True"/>
+      <Setter Property="Width" Value="15"/>
+      <Setter Property="Height" Value="15"/>
+      <Setter Property="FontSize" Value="10"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <!-- Transparent Grid fill = the whole square is hit-testable, corners included. -->
+            <Grid Background="Transparent">
+              <Ellipse Stroke="{TemplateBinding Foreground}" StrokeThickness="1.4" Fill="Transparent"/>
+              <!-- ⚠ A RenderTransform, not a Margin: under VerticalAlignment="Center" a margin shifts the
+                   element by HALF its value, so a margin nudge is twice as coarse as it reads. This moves
+                   the glyph exactly, and costs no layout pass.
+                   ⚠ UP (negative), and don't flip it: WPF centres the LINE BOX, and "?" has no descender,
+                   so the empty descent space below the ink is smaller than the space above it and the glyph
+                   lands LOW of the ellipse's centre. Measured off Segoe UI Bold's ink bounds against the
+                   line box: -0.64 at FontSize 10, -0.83 at 13. Must match SettingsTheme.xaml's copy —
+                   T_Hygiene re-measures both and fails if either drifts or they disagree. -->
+              <TextBlock Text="?" FontWeight="Bold" FontSize="{TemplateBinding FontSize}"
+                         Foreground="{TemplateBinding Foreground}"
+                         HorizontalAlignment="Center" VerticalAlignment="Center">
+                <TextBlock.RenderTransform>
+                  <TranslateTransform Y="2.3"/>
+                </TextBlock.RenderTransform>
+              </TextBlock>
+            </Grid>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+      <Style.Triggers>
+        <Trigger Property="IsMouseOver" Value="True">
+          <Setter Property="Foreground" Value="{StaticResource HeadingInk}"/>
+          <Setter Property="Opacity" Value="1"/>
+        </Trigger>
+        <Trigger Property="IsKeyboardFocused" Value="True">
+          <Setter Property="Opacity" Value="1"/>
+        </Trigger>
+      </Style.Triggers>
+    </Style>
+    <!-- Buttons: Settings' warm flat-chrome (SettingsTheme.xaml's Button style), copied rather than merged
+         so onboarding's TabItem/Hyperlink styling is untouched. Implicit — covers every plain button. -->
+    <Style TargetType="Button">
+      <Setter Property="Background" Value="White"/>
+      <Setter Property="BorderBrush" Value="{StaticResource UiBorder}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="Foreground" Value="{StaticResource UiBodyInk}"/>
+      <Setter Property="Padding" Value="9,4"/>
+      <Setter Property="SnapsToDevicePixels" Value="True"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="Bd" Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}"
+                    CornerRadius="4" SnapsToDevicePixels="True">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                Margin="{TemplateBinding Padding}" RecognizesAccessKey="True"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsDefault" Value="True">
+                <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource UiBorderDefaultBtn}"/>
+              </Trigger>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="{StaticResource UiHoverBg}"/>
+                <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource UiBorderHover}"/>
+              </Trigger>
+              <Trigger Property="IsPressed" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="{StaticResource UiPressedBg}"/>
+              </Trigger>
+              <Trigger Property="IsKeyboardFocused" Value="True">
+                <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource UiBorderFocus}"/>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Opacity" Value="0.45"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <!-- Footer nav buttons (Back/Skip/Next): the implicit chrome above plus their own size/spacing. -->
+    <Style x:Key="FooterButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+      <Setter Property="Padding" Value="18,7"/>
+      <Setter Property="Margin" Value="8,0,0,0"/>
+      <Setter Property="FontSize" Value="13"/>
+    </Style>
+
+    <!-- Drop-downs: Settings' warm flat-chrome (SettingsTheme.xaml's ComboBox style), copied rather than
+         merged so onboarding's Button/TabItem/Hyperlink styling is untouched. -->
+    <Style TargetType="ComboBox">
+      <Setter Property="Foreground" Value="{StaticResource UiBodyInk}"/>
+      <Setter Property="Background" Value="White"/>
+      <Setter Property="BorderBrush" Value="{StaticResource UiBorder}"/>
+      <Setter Property="Padding" Value="9,4,28,4"/>
+      <Setter Property="SnapsToDevicePixels" Value="True"/>
+      <Setter Property="ScrollViewer.CanContentScroll" Value="True"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ComboBox">
+            <Grid>
+              <ToggleButton x:Name="Toggle" Focusable="False" ClickMode="Press"
+                            IsChecked="{Binding IsDropDownOpen, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}">
+                <ToggleButton.Template>
+                  <ControlTemplate TargetType="ToggleButton">
+                    <Border x:Name="Bd" CornerRadius="4" SnapsToDevicePixels="True"
+                            Background="{Binding Background, RelativeSource={RelativeSource AncestorType=ComboBox}}"
+                            BorderBrush="{Binding BorderBrush, RelativeSource={RelativeSource AncestorType=ComboBox}}"
+                            BorderThickness="1">
+                      <Path HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,1,9,0"
+                            Data="M 0 0 L 4 4 L 8 0 Z" Fill="{StaticResource UiMutedInk}"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                      <Trigger Property="IsMouseOver" Value="True">
+                        <Setter TargetName="Bd" Property="Background" Value="{StaticResource UiHoverBg}"/>
+                        <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource UiBorderHover}"/>
+                      </Trigger>
+                      <Trigger Property="IsChecked" Value="True">
+                        <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource UiBorderFocus}"/>
+                      </Trigger>
+                    </ControlTemplate.Triggers>
+                  </ControlTemplate>
+                </ToggleButton.Template>
+              </ToggleButton>
+              <Border Margin="{TemplateBinding Padding}" ClipToBounds="True" IsHitTestVisible="False">
+                <ContentPresenter HorizontalAlignment="Left" VerticalAlignment="Center"
+                                  Content="{TemplateBinding SelectionBoxItem}"
+                                  ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                  ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}"
+                                  ContentStringFormat="{TemplateBinding SelectionBoxItemStringFormat}"/>
+              </Border>
+              <Popup IsOpen="{TemplateBinding IsDropDownOpen}" Placement="Bottom" StaysOpen="False"
+                     AllowsTransparency="True" PopupAnimation="Slide">
+                <Border Background="White" BorderBrush="{StaticResource UiBorder}" BorderThickness="1" CornerRadius="4"
+                        Margin="0,2,4,4" MinWidth="{TemplateBinding ActualWidth}"
+                        MaxHeight="{TemplateBinding MaxDropDownHeight}" SnapsToDevicePixels="True">
+                  <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Contained"/>
+                  </ScrollViewer>
+                </Border>
+              </Popup>
+            </Grid>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Opacity" Value="0.45"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+  </Window.Resources>
+
+  <Grid>
+    <!-- Welcome-step wheel watermark, behind the step content (toggled per-step in ShowStep). -->
+    <Image x:Name="WheelWatermark" Source="wheel-background-alpha.png" Width="538" IsHitTestVisible="False" FlowDirection="LeftToRight"
+           HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,-150,-204" Opacity="0.9"/>
+  <DockPanel>
+    <!-- Header: step title + progress -->
+    <Border DockPanel.Dock="Top" Padding="28,20,28,8">
+      <Grid>
+        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+        <!-- Practice step only: a segmented toggle between the step's Recommended (default) and Custom
+             states, which the filmstrip slides between (see SetPracticeState). Equal-star columns keep the
+             halves the same width — so the thumb is exactly half the track — even though "Recommended" is
+             the longer word; MinWidth sizes the track to fit it. -->
+        <!-- Sized at 125% of the original (232×28). It sits in the header's LAST column, right edge
+             pinned by a zero right margin and Top-aligned, so growth runs down and to the left. -->
+        <Border x:Name="PracticeModeToggle" Grid.Column="1" Visibility="Collapsed"
+                VerticalAlignment="Top" Margin="12,2,0,0" MinWidth="290" Height="35" Padding="2.5"
+                CornerRadius="17.5" Background="#14000000" BorderBrush="#26000000" BorderThickness="1"
+                Cursor="Hand" Focusable="True" KeyboardNavigation.IsTabStop="True"
+                MouseLeftButtonUp="PracticeModeToggle_MouseUp" KeyDown="PracticeModeToggle_KeyDown">
+          <Grid x:Name="PracticeToggleGrid" SizeChanged="PracticeToggleGrid_SizeChanged">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*"/><ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <!-- The thumb sits in column 0 (so it's exactly half the track) and translates one half-width
+                 right for Custom; ApplyPracticeToggleVisual animates it in step with the filmstrip. -->
+            <Border x:Name="PracticeToggleThumb" Grid.Column="0" CornerRadius="15" Background="#FFFFFF"
+                    BorderBrush="#1F000000" BorderThickness="1">
+              <Border.RenderTransform><TranslateTransform x:Name="PracticeToggleSlide"/></Border.RenderTransform>
+            </Border>
+            <TextBlock x:Name="PracticeToggleRecLabel" Grid.Column="0" Text="{loc:T Recommended}" FontSize="15.625"
+                       FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            <TextBlock x:Name="PracticeToggleCustomLabel" Grid.Column="1" Text="{loc:T Custom}" FontSize="15.625"
+                       FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+          </Grid>
+        </Border>
+        <!-- Welcome step only: the language picker. A pick writes system.language and relaunches the app;
+             the wizard resumes on this step (SystemConfig.OobeStep), which is what makes the change read as
+             live. The flag is drawn geometry pinned LeftToRight so a right-to-left UI cannot mirror it. -->
+        <StackPanel x:Name="LanguageRow" Grid.Column="2" VerticalAlignment="Top" Margin="12,4,0,0" Visibility="Collapsed">
+        <!-- Right, and sized to its own content: as a stretched child this row was as wide as the
+             support note below it, which made the combo look padded out to match a sentence it has
+             nothing to do with. Right-aligned, the two still share an edge. -->
+        <DockPanel HorizontalAlignment="Right">
+          <Border x:Name="LanguageFlagHost" DockPanel.Dock="Left" Width="22" Height="14" Margin="0,0,6,0"
+                  VerticalAlignment="Center" FlowDirection="LeftToRight"/>
+          <ComboBox x:Name="LanguageBox" FontSize="12" Padding="5,3" MinWidth="120" VerticalAlignment="Center"
+                    AutomationProperties.Name="{loc:T Language}" ToolTip="{loc:T Language}"
+                    SelectionChanged="LanguageBox_SelectionChanged"/>
+        </DockPanel>
+          <!-- Support is English-only: said where a language is picked. -->
+          <TextBlock x:Name="LanguageNote" FontSize="10.5" Foreground="#88000000" Margin="0,3,0,0" TextAlignment="Right" Visibility="Collapsed"
+                     loc:LocRich.Source="Machine-translated. Support is English-only."/>
+        </StackPanel>
+      <StackPanel Grid.Column="0">
+        <!-- The finish step's Title *is* its sign-off line, so it reuses this block and its heading/dots
+             land where every other step puts them. -->
+        <TextBlock x:Name="StepTitle" FontSize="24" FontWeight="SemiBold" Foreground="#3D405B"/>
+        <ItemsControl x:Name="StepDots" Margin="1,10,0,0">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+        </ItemsControl>
+        <!-- Finish step only: the live status line must sit BELOW the dots — between them and the title it
+             would push the dots off their usual spot. -->
+        <TextBlock x:Name="FinishSummary" Style="{StaticResource Body}" FontSize="11.25" Margin="1,7,0,0"
+                   Foreground="#88000000" Visibility="Collapsed"/>
+      </StackPanel>
+      </Grid>
+    </Border>
+
+    <!-- Footer: navigation -->
+    <Border DockPanel.Dock="Bottom" Padding="28,14,28,18" Background="#08000000">
+      <DockPanel>
+        <TextBlock x:Name="StepCounter" VerticalAlignment="Center" Foreground="#66000000" FontSize="12"/>
+        <!-- Back is docked LEFT so it lands in the SAME spot on every step, instead of shuffling as the
+             step-specific buttons (Reset, Preview, Skip) come and go beside Next. -->
+        <Button x:Name="BtnBack" Content="{loc:T Back}" DockPanel.Dock="Left" Style="{StaticResource FooterButton}"
+                Margin="16,0,0,0" VerticalAlignment="Center" HorizontalAlignment="Left" Click="BtnBack_Click"/>
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+          <!-- Only visible on the last step (StepFinish) — toggled in ShowStep. -->
+          <CheckBox x:Name="StartupCheck" IsChecked="True" Visibility="Collapsed" Margin="0,0,20,0"
+                    VerticalAlignment="Center" Foreground="#CC000000">
+            <TextBlock Text="{loc:T Start with Windows}" FontSize="13"/>
+          </CheckBox>
+          <Button x:Name="BtnSkip" Content="{loc:T Skip}"  Style="{StaticResource FooterButton}" Click="BtnSkip_Click"/>
+          <!-- Customize step only: throw away the edits made on this step and re-tick the starter layout. -->
+          <Button x:Name="BtnReset" Content="{loc:T Reset to Defaults}" Style="{StaticResource FooterButton}"
+                  Visibility="Collapsed" Click="BtnReset_Click"
+                  ToolTip="{loc:T Replace wheels with starter slices}"/>
+          <!-- Material step only: reveals the accessibility checkbox row under the thickness tiles. -->
+          <Button x:Name="BtnAccessibility" Style="{StaticResource FooterButton}"
+                  Visibility="Collapsed" Click="BtnAccessibility_Click">
+            <StackPanel Orientation="Horizontal">
+              <!-- MDI wheelchair-accessibility glyph — Source set in the ctor (PackIconHelper.FromName is
+                   a plain method, not a markup extension; same pattern as RecPlus). -->
+              <Image x:Name="AccessibilityGlyph" Width="15" Height="15" Margin="0,0,6,0"
+                     VerticalAlignment="Center"/>
+              <TextBlock Text="{loc:T Accessibility...}" VerticalAlignment="Center"/>
+            </StackPanel>
+          </Button>
+          <!-- Material step only: opens the Right wheel so the pick can be previewed instantly. -->
+          <Button x:Name="BtnPreviewWheel" Content="{loc:T Preview}" Style="{StaticResource FooterButton}"
+                  Visibility="Collapsed" Click="BtnPreviewWheel_Click"/>
+          <Button x:Name="BtnNext" Content="{loc:T Next}"  Style="{StaticResource FooterButton}" FontWeight="SemiBold" Click="BtnNext_Click"/>
+        </StackPanel>
+      </DockPanel>
+    </Border>
+
+    <!-- Step bodies (one visible at a time; switched in code-behind) -->
+    <ScrollViewer x:Name="StepScroller" VerticalScrollBarVisibility="Auto">
+    <Grid Margin="28,10,28,10">
+
+      <!-- 1 · Welcome + controller detection + drivers (two columns) -->
+      <StackPanel x:Name="StepWelcome" Visibility="Collapsed">
+        <TextBlock Style="{StaticResource Body}" Margin="0,4,0,12"
+                   Text="{loc:T 'Radiata is a customizable, controller-driven radial menu system. Connect your controller now to set up.'}"/>
+        <!-- Status boxes: the controller box (col 0) spans BOTH driver rows, so it stretches to the same
+             height as the two driver boxes stacked to its right. Glyph sits ABOVE the status text.
+             When both drivers are already installed the whole drivers column collapses and the controller
+             box takes the full width, enlarged — toggled in RefreshStatus (ApplyWelcomeLayout). -->
+        <Grid>
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>       <!-- controller -->
+            <ColumnDefinition Width="20"/>
+            <ColumnDefinition Width="1.15*"/>    <!-- drivers -->
+          </Grid.ColumnDefinitions>
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+          </Grid.RowDefinitions>
+
+          <!-- PadSplit is a transparent container occupying the slot PadBox alone used to occupy — it, not
+               PadBox, carries the ColumnSpan/centering/MinWidth that used to live on PadBox, so the
+               "<name> connected" card and a situational caveat card (Adaptive Triggers / touchpad / L4-R4,
+               none for Xbox) can sit as SIBLINGS at 1:1 (padOnly) or 1:1.2 instead of the caveat nesting inside the connected
+               card's border. The caveat column collapses to zero width when there's nothing to say —
+               ApplyWelcomeLayout drives both PadSplit's presentation (centered+enlarged only while no
+               caveat shows) and its column split (see docs/ONBOARDING.md). -->
+          <Grid x:Name="PadSplit" Grid.Column="0" Grid.Row="0" Grid.RowSpan="2" VerticalAlignment="Stretch">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition x:Name="PadSplitCol0" Width="*"/>
+              <ColumnDefinition x:Name="PadSplitGap" Width="0"/>
+              <ColumnDefinition x:Name="PadSplitCol2" Width="0"/>
+            </Grid.ColumnDefinitions>
+            <Border x:Name="PadBox" Grid.Column="0" Background="#06000000" CornerRadius="6"
+                    Padding="14,12" VerticalAlignment="Stretch">
+              <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                <Image x:Name="PadGlyph" Width="46" Height="46" HorizontalAlignment="Center"
+                       RenderOptions.BitmapScalingMode="HighQuality"/>
+                <TextBlock x:Name="PadStatus" Style="{StaticResource StatusName}" TextWrapping="Wrap"
+                           TextAlignment="Center" HorizontalAlignment="Center" Margin="0,8,0,0"/>
+                <!-- RefreshStatus shows this only while nothing's detected; the 1 s poll makes it true. -->
+                <TextBlock x:Name="PadWaiting" Style="{StaticResource Body}" Foreground="#B05A3C"
+                           TextWrapping="Wrap" TextAlignment="Center" HorizontalAlignment="Center"
+                           Margin="0,4,0,0" Text="{loc:T Refreshes automatically}"/>
+              </StackPanel>
+            </Border>
+            <!-- No glyph: the header line (bold, "{0} Compatibility Note:") carries the model name instead,
+                 so the copy below it gets the full card width. -->
+            <Border x:Name="WelcomeCaveatCard" Grid.Column="2" Visibility="Collapsed"
+                    Background="#06000000" CornerRadius="6" Padding="16,14" VerticalAlignment="Stretch">
+              <TextBlock x:Name="WelcomeCaveatText" Style="{StaticResource Body}"
+                         TextWrapping="Wrap" VerticalAlignment="Center"/>
+            </Border>
+          </Grid>
+
+          <!-- HidHide sits ABOVE ViGEmBus — the cloak is the headline of the isolation tier, so it reads
+               first; ViGEmBus is the relay that makes the cloak survivable. -->
+          <Border x:Name="HidHideBox" Grid.Column="2" Grid.Row="0" Background="#06000000" CornerRadius="6" Padding="14,12" Margin="0,0,0,8">
+            <DockPanel>
+              <TextBlock x:Name="HidHideGlyph" Style="{StaticResource StatusGlyph}"/>
+              <StackPanel>
+                <TextBlock Text="{loc:T HidHide}" Style="{StaticResource StatusName}"/>
+                <TextBlock x:Name="HidHideDetail" Style="{StaticResource StatusDetail}"/>
+              </StackPanel>
+            </DockPanel>
+          </Border>
+          <Border x:Name="ViGEmBox" Grid.Column="2" Grid.Row="1" Background="#06000000" CornerRadius="6" Padding="14,12">
+            <DockPanel>
+              <TextBlock x:Name="ViGEmGlyph" Style="{StaticResource StatusGlyph}"/>
+              <StackPanel>
+                <TextBlock Text="{loc:T ViGEmBus}" Style="{StaticResource StatusName}"/>
+                <TextBlock x:Name="ViGEmDetail" Style="{StaticResource StatusDetail}"/>
+              </StackPanel>
+            </DockPanel>
+          </Border>
+        </Grid>
+
+        <!-- Full-width so it survives the drivers column collapsing: a peer tool doubles/blocks input
+             whether or not the drivers need installing. -->
+        <TextBlock x:Name="PeerToolWarn" Style="{StaticResource Body}" Margin="0,10,0,0" Foreground="#B03A2E" Visibility="Collapsed"/>
+
+        <!-- Same columns as the grid above, so each item lines up under the box it belongs to. -->
+        <Grid Margin="0,8,0,0">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/><ColumnDefinition Width="20"/><ColumnDefinition Width="1.15*"/>
+          </Grid.ColumnDefinitions>
+          <StackPanel x:Name="PadLinkCol" Grid.Column="0">
+            <TextBlock FontSize="13" HorizontalAlignment="Center" TextAlignment="Center">
+              <Hyperlink Click="PadHelp_Click" Foreground="#3D405B"><Run Text="{loc:T Which controllers are supported?}"/></Hyperlink>
+            </TextBlock>
+          </StackPanel>
+          <StackPanel x:Name="DriversLinkCol" Grid.Column="2">
+            <!-- Don't add a "Without these Radiata still works" caption here: that sentence is the body of
+                 the skip-drivers confirmation, which is where a user who ignores the tip card actually
+                 meets it. -->
+            <TextBlock x:Name="HidGuardianWarn" Style="{StaticResource Body}" Foreground="#B03A2E" Visibility="Collapsed"
+                       Text="{loc:T '⚠ The HidGuardian driver is installed — it cannot coexist with HidHide. Install below launches the removal tool (Legacinator) first. Remove HidGuardian in it, then run Install again.'}"/>
+            <DockPanel Margin="0,4,0,0">
+              <Button x:Name="BtnInstallDrivers" Content="{loc:T Install / Repair Drivers}" Padding="14,7" FontSize="13" FontWeight="SemiBold"
+                      DockPanel.Dock="Left" VerticalAlignment="Top" Click="BtnInstallDrivers_Click"/>
+              <TextBlock VerticalAlignment="Center" Margin="12,0,0,0" FontSize="13"
+                         HorizontalAlignment="Center" TextAlignment="Center">
+                <Hyperlink Click="DriversInfo_Click" Foreground="#3D405B"><Run Text="{loc:T About these drivers}"/></Hyperlink>
+              </TextBlock>
+            </DockPanel>
+            <TextBlock x:Name="InstallStatus" Style="{StaticResource StatusDetail}" Margin="0,8,0,0"/>
+          </StackPanel>
+        </Grid>
+
+        <!-- Shown only while steam.exe is running (RefreshStatus). Committed on leaving the step forward
+             (Next or Skip); the restart itself waits for the cloak — see App.ArmUserSteamRestart. -->
+        <CheckBox x:Name="SteamRestartCheck" IsChecked="True" Visibility="Collapsed"
+                  HorizontalAlignment="Center" Margin="0,14,0,4" Foreground="#CC000000">
+          <TextBlock FontSize="13" TextWrapping="Wrap"
+                     Text="{loc:T Restart Steam to unblock your controller (recommended)}"/>
+        </CheckBox>
+
+        <!-- Shared tip card: both links above open their content here — clicking the other link swaps the
+             content, clicking the same one again closes it. -->
+        <Border x:Name="WelcomeTipCard" Visibility="Collapsed" Background="#06000000" CornerRadius="6"
+                Padding="14,10" Margin="0,0,0,0">
+          <Grid>
+            <StackPanel x:Name="PadHelp" Visibility="Collapsed">
+              <TextBlock Style="{StaticResource Body}" FontSize="11.7" LineHeight="17" TextWrapping="Wrap"
+                         Text="{loc:T 'Radiata should support any standard game controller that\'s recognized by Windows using Dinput and Xinput over USB, Bluetooth, and wireless dongle.'}"/>
+              <TextBlock Style="{StaticResource Body}" FontSize="11.7" LineHeight="17" TextWrapping="Wrap" Margin="0,7,0,0"
+                         Text="{loc:T 'If your controller can\'t be isolated, Radiata falls back automatically — the wheel still works, but games will also receive your input while a wheel is up. Proprietary haptics like Sony adaptive triggers can\'t pass through the virtual controller; turn on Passthru Mode (tray icon) or exit Radiata when a game needs them.'}"/>
+            </StackPanel>
+            <TextBlock x:Name="DriversIntro" Style="{StaticResource Body}" FontSize="11.7" LineHeight="17" TextWrapping="Wrap" Visibility="Collapsed"/>
+          </Grid>
+        </Border>
+      </StackPanel>
+
+      <!-- 4 · Assets / cover art — before Customize so add-game slices get rich logos -->
+      <StackPanel x:Name="StepArt" Visibility="Collapsed">
+        <!-- What the step is actually buying: a plain-label slice/tile row, then the same row carrying each
+             game's own logo. Fixed width rather than stretched — the art is a set of renders at a specific
+             size, and letting it grow to the content column would blow it up past what it depicts. -->
+        <!-- UpdateArtPanels swaps this to tile-logo-null.png while "No game art" is picked, so the
+             illustration stops promising art the user just declined, and to tile-logos-playnite.png while
+             "Playnite only" is picked. -->
+        <Image x:Name="ArtExample" Source="pack://application:,,,/Assets/tile-logos.png"
+               Width="545" Stretch="Uniform" HorizontalAlignment="Center"
+               Margin="0,2,0,10" IsHitTestVisible="False"/>
+        <TextBlock x:Name="ArtIntro" Style="{StaticResource Body}" Margin="0,4,0,10"/>
+        <!-- The three choices are contextual: EnterArt writes each radio's text per Playnite branch and
+             collapses option 3 when Playnite is installed. Option order IS the selection contract: the
+             step's code reads ArtSelectedIndex 0/1/2 (the checked radio), so don't reorder them. Option 1
+             is the recommended pick in both branches. -->
+        <!-- The 22px left inset is the SgdbSetup / PlayniteGet panels' indent, so the radios' left edge
+             lines up with the Open SteamGrid API button below. The Get Playnite button sits beside option
+             2 and only shows while that option is picked on the no-Playnite branch. -->
+        <StackPanel Margin="22,2,0,10">
+          <RadioButton x:Name="ArtOpt1" GroupName="ArtChoice" FontSize="13" FontWeight="Bold"
+                       Margin="0,4,0,4" Checked="ArtOption_Changed"/>
+          <StackPanel Orientation="Horizontal" Margin="0,4,0,4">
+            <RadioButton x:Name="ArtOpt2" GroupName="ArtChoice" FontSize="13" VerticalAlignment="Center"
+                         Checked="ArtOption_Changed"/>
+            <Button x:Name="PlayniteGet" Content="{loc:T Get Playnite (playnite.link)}"
+                    Padding="12,5" Margin="14,0,0,0" VerticalAlignment="Center"
+                    Visibility="Collapsed" Click="BtnGetPlaynite_Click"/>
+          </StackPanel>
+          <RadioButton x:Name="ArtOpt3" GroupName="ArtChoice" FontSize="13"
+                       Margin="0,4,0,4" Checked="ArtOption_Changed"/>
+        </StackPanel>
+        <StackPanel x:Name="SgdbSetup" Margin="22,0,0,0" Visibility="Collapsed">
+          <TextBlock Style="{StaticResource Body}" Foreground="#88000000"
+                     Text="{loc:T 'SteamGridDB needs a free API key. Sign in with Steam, then copy the key from Preferences ▸ API.'}"/>
+          <!-- Site button, key field and Test & Save share ONE row: the key box takes the leftover column
+               so the row can't overflow the step at any width. -->
+          <Grid Margin="0,8,0,0">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="Auto"/>
+              <ColumnDefinition Width="Auto"/>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <Button Grid.Column="0" Content="{loc:T Open SteamGrid API}" Padding="12,5" Click="BtnSgdbSite_Click"/>
+            <TextBlock Grid.Column="1" Text="{loc:T API key:}" VerticalAlignment="Center" Margin="10,0,8,0" FontSize="13"/>
+            <!-- SGDB keys are 32 hex chars; MaxLength 35 leaves slack for pasted whitespace. -->
+            <TextBox x:Name="SgdbKeyBox" Grid.Column="2" FontSize="13" Padding="4,4" VerticalAlignment="Center"
+                     MinWidth="150" MaxLength="35"/>
+            <Button x:Name="BtnSgdbTest" Grid.Column="3" Content="{loc:T Test &amp; Save}" Padding="12,5" Margin="8,0,0,0"
+                    Click="BtnSgdbTest_Click"/>
+          </Grid>
+          <!-- Collapses when empty: an always-present status line reserved a blank row on every visit and
+               pushed the illustration below down the step. -->
+          <TextBlock x:Name="SgdbKeyStatus" TextWrapping="Wrap" Margin="0,6,0,0">
+            <TextBlock.Style>
+              <Style TargetType="TextBlock" BasedOn="{StaticResource StatusDetail}">
+                <Style.Triggers>
+                  <Trigger Property="Text" Value="">
+                    <Setter Property="Visibility" Value="Collapsed"/>
+                  </Trigger>
+                </Style.Triggers>
+              </Style>
+            </TextBlock.Style>
+          </TextBlock>
+        </StackPanel>
+        <!-- The only warning for options that DISCARD an already-saved key (the SGDB panel is hidden then). -->
+        <TextBlock x:Name="SgdbDropNotice" Style="{StaticResource StatusDetail}" Margin="22,4,0,0"
+                   TextWrapping="Wrap" Visibility="Collapsed"
+                   Text="{loc:T 'Note: this option doesn\'t use SteamGridDB, so your saved API key will be removed when you continue. Pick an option above that includes SteamGridDB to keep it.'}"/>
+      </StackPanel>
+
+      <!-- 5 · Customize: starter wheel lists first, discovered storefront cards below. Ticks apply LIVE
+              (ApplyWheelsLive); do nothing = keep the current layout. -->
+      <StackPanel x:Name="StepWheels" Visibility="Collapsed">
+        <!-- Preview reminder (chord filled live in EnterWheels): the wheels are live in Preview mode here. -->
+        <TextBlock x:Name="WheelsPreviewReminder" Style="{StaticResource Body}" FontWeight="SemiBold" Margin="0,4,0,8"/>
+        <!-- Starting slices. Over-cap / no-games note sits right above the pre-ticked lists. -->
+        <TextBlock x:Name="WheelsSummary" Style="{StaticResource Body}" Margin="0,0,0,8" Visibility="Collapsed"/>
+        <Grid Margin="0,2,0,0">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/><ColumnDefinition Width="16"/><ColumnDefinition Width="*"/>
+          </Grid.ColumnDefinitions>
+          <Border Grid.Column="0" Background="#06000000" CornerRadius="6" Padding="12,10">
+            <StackPanel>
+              <TextBlock Text="{loc:T Left Wheel: Command}" Style="{StaticResource StatusName}" FontSize="15" Margin="0,0,0,6"/>
+              <ItemsControl x:Name="WheelAList"/>
+              <TextBlock Text="{loc:T More options can be added later in Settings}" FontSize="11" Foreground="#77000000"
+                         TextWrapping="Wrap" Margin="0,8,0,0"/>
+            </StackPanel>
+          </Border>
+          <Border Grid.Column="2" Background="#06000000" CornerRadius="6" Padding="12,10">
+            <StackPanel>
+              <TextBlock Text="{loc:T Right Wheel: Play}" Style="{StaticResource StatusName}" FontSize="15" Margin="0,0,0,6"/>
+              <ItemsControl x:Name="WheelBList"/>
+              <!-- ApplyAddGameState relabels this and drops the green outline after the first add, and
+                   hides it entirely once Wheel B hits the slice cap. -->
+              <Border x:Name="AddGameBox" BorderBrush="#89B29A" BorderThickness="2" CornerRadius="8" Padding="10,8" Margin="0,10,0,0">
+                <DockPanel>
+                  <TextBlock x:Name="AddGameLabel" Text="{loc:T Add your first game:}" DockPanel.Dock="Left" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                  <ComboBox x:Name="GameDropdown" FontSize="13" SelectionChanged="GameDropdown_Changed"/>
+                </DockPanel>
+              </Border>
+            </StackPanel>
+          </Border>
+        </Grid>
+
+        <!-- Storefronts: what feeds the Game Grid + game picker — INFORMATIONAL cards built by AddStoreRow,
+             6 per row, Playnite added when present. No opt-outs here; those live in Settings ▸ Advanced. -->
+        <TextBlock x:Name="StoresScanning" Style="{StaticResource StatusDetail}" Margin="0,16,0,0" Text="{loc:T Scanning your storefronts…}"/>
+        <ItemsControl x:Name="StoresFound" Margin="4,16,0,0">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate><UniformGrid Columns="6"/></ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+        </ItemsControl>
+      </StackPanel>
+
+      <!-- 2 · Try it out: perform the Recommended chord OR build + perform a Custom one, then the
+              enable/disable chord. The last-tried side (Recommended vs Custom) is the trigger that's kept. -->
+      <Grid x:Name="StepPractice" Visibility="Collapsed">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="Auto"/>   <!-- left: the cards, stacked + left-aligned -->
+          <ColumnDefinition Width="*"/>       <!-- right: the controls illustration -->
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+          <RowDefinition Height="Auto"/>      <!-- advice card, spanning both columns -->
+          <RowDefinition Height="Auto"/>      <!-- cards | illustration (Auto: the image centers against the CARD stack, not leftover space) -->
+        </Grid.RowDefinitions>
+
+        <!-- Row 0 = the tip card, always visible here; its text fades between the two states' copy on
+             toggle. Don't move it below the strip or fold it behind a link — that breaks the step's
+             layout. The no-pad notice lives beside the step TITLE, costing no vertical space here. -->
+        <StackPanel Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="2">
+          <Border x:Name="PracticeAdviceCard"
+                  Background="#06000000" CornerRadius="8" Padding="14,10" Margin="0,-4,0,12" Visibility="Collapsed">
+            <!-- The two states' copy are DIFFERENT LENGTHS, so both bodies share one cell with the inactive
+                 one HIDDEN, not Collapsed: hidden elements still measure, so the cell stays at the TALLER
+                 state's height and the card never resizes on toggle (a resize shifts the strip below and
+                 bobs the illustration). Don't swap this for a hard-coded Height — it needs re-tuning per
+                 window width, font and DPI. SetPracticeAdviceText fills both and swaps visibility. -->
+            <Grid>
+              <TextBlock x:Name="PracticeAdviceText" Style="{StaticResource Body}" FontSize="12" LineHeight="17" TextWrapping="Wrap"/>
+              <TextBlock x:Name="PracticeAdviceGhost" Visibility="Hidden" IsHitTestVisible="False"
+                         Style="{StaticResource Body}" FontSize="12" LineHeight="17" TextWrapping="Wrap"/>
+            </Grid>
+          </Border>
+        </StackPanel>
+
+        <!-- Row 1 = a clipped VIEWPORT hosting a horizontal FILMSTRIP: [Recommended column][shared
+             illustration][Customize column]. Sliding the strip left by one card-column (PracticeSlide,
+             offset set in code) swaps which state is on screen, the illustration acting as the shared
+             middle panel. Each column = invocation card + that state's enable/disable card. -->
+        <!-- Must be a CANVAS host, not a Grid: a Grid stamps a LAYOUT CLIP on the over-wide strip in strip
+             coordinates, which rides along with the RenderTransform, so the Customize column can never
+             slide into view. Canvas children measure unbounded → no layout clip; the Canvas (ClipToBounds)
+             is the viewport, and its Height must be bound to the strip since a Canvas doesn't size to
+             children. Top-aligned so unused vertical space lands below the cards. -->
+        <Canvas x:Name="PracticeViewport" Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2" FlowDirection="LeftToRight"
+                ClipToBounds="True" HorizontalAlignment="Stretch" VerticalAlignment="Top"
+                Height="{Binding ActualHeight, ElementName=PracticeStrip}"
+                SizeChanged="PracticeViewport_SizeChanged">
+          <!-- The strip's three panels are all Top so the art doesn't sit on the tallest column's baseline. -->
+          <StackPanel x:Name="PracticeStrip" Orientation="Horizontal" VerticalAlignment="Top">
+            <StackPanel.RenderTransform>
+              <TranslateTransform x:Name="PracticeSlide"/>
+            </StackPanel.RenderTransform>
+
+            <!-- ── Recommended column ─────────────────────────────────────── -->
+            <StackPanel x:Name="RecColStack" VerticalAlignment="Top">
+              <!-- Parked header: reinstate only in step with the Customize column's, or they stop aligning. -->
+              <!--
+              <TextBlock Text="{loc:T Recommended}" FontSize="21" FontWeight="SemiBold"
+                         Foreground="{StaticResource HeadingInk}" Margin="0,0,0,8" TextAlignment="Center"/>
+              -->
+              <Border x:Name="RecCard" CornerRadius="8" BorderThickness="1" BorderBrush="#33000000" Padding="14,9,12.6,10"
+                      Width="238" Height="95" Margin="0,4,0,0" HorizontalAlignment="Left">
+                <Grid>
+                  <Grid.RowDefinitions><RowDefinition Height="24"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                  <TextBlock Grid.Row="0" Text="{loc:T Try Opening a Wheel}" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center"/>
+                  <Border x:Name="RecCheck" Grid.Row="0" Width="24" Height="24" CornerRadius="12" HorizontalAlignment="Right"
+                          Background="#3C405B" Visibility="Collapsed">
+                    <TextBlock Text="✓" Foreground="White" FontWeight="Bold" FontSize="15"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                  </Border>
+                  <TextBlock x:Name="RecChordText" Grid.Row="1" FontSize="17.25" FontWeight="SemiBold"
+                             HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center"
+                             TextWrapping="Wrap" Text="{loc:T Fn (below thumbsticks)}"/>
+                  <!-- Two-button chords split into live Hold/Tap halves, each green while its button is
+                       held. Single-button chords keep RecChordText; visibility swapped in code. -->
+                  <Grid x:Name="RecSplitGrid" Grid.Row="1" Visibility="Collapsed">
+                    <Grid.ColumnDefinitions>
+                      <ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Border x:Name="RecHoldHalf" Grid.Column="0" CornerRadius="6" BorderThickness="1"
+                            BorderBrush="#33000000">
+                      <StackPanel VerticalAlignment="Center">
+                        <TextBlock Text="{loc:T Hold}" FontSize="11" Opacity="0.7" HorizontalAlignment="Center"/>
+                        <TextBlock x:Name="RecHoldText" FontSize="14.5" FontWeight="SemiBold"
+                                   HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap"/>
+                      </StackPanel>
+                    </Border>
+                    <!-- Mirrors BuildCustomChordRow's circled-plus joiner; Source set in the ctor. -->
+                    <Image x:Name="RecPlus" Grid.Column="1" Width="16" Height="16"
+                           VerticalAlignment="Center" Margin="3.5,0,3.5,0"/>
+                    <Border x:Name="RecTapHalf" Grid.Column="2" CornerRadius="6" BorderThickness="1"
+                            BorderBrush="#33000000">
+                      <StackPanel VerticalAlignment="Center">
+                        <TextBlock Text="{loc:T Tap}" FontSize="11" Opacity="0.7" HorizontalAlignment="Center"/>
+                        <TextBlock x:Name="RecTapText" FontSize="14.5" FontWeight="SemiBold"
+                                   HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap"/>
+                      </StackPanel>
+                    </Border>
+                  </Grid>
+                </Grid>
+              </Border>
+              <Border x:Name="RecEnableCard" CornerRadius="8" BorderThickness="1" BorderBrush="#33000000" Padding="14,9,12.6,10"
+                      Width="238" Height="95" Margin="0,10,0,0" HorizontalAlignment="Left">
+                <Grid>
+                  <Grid.RowDefinitions><RowDefinition Height="24"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                  <TextBlock x:Name="RecEnableTitle" Grid.Row="0" Text="{loc:T Try Disabling Wheels}" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center"/>
+                  <Border x:Name="RecEnableCheck" Grid.Row="0" Width="24" Height="24" CornerRadius="12" HorizontalAlignment="Right"
+                          Background="#3C405B" Visibility="Collapsed">
+                    <TextBlock Text="✓" Foreground="White" FontWeight="Bold" FontSize="15"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                  </Border>
+                  <TextBlock x:Name="RecEnableText" Grid.Row="1" FontSize="17.25" FontWeight="SemiBold"
+                             HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center"
+                             TextWrapping="Wrap" Text="{loc:T Fn1 + Fn2}"/>
+                </Grid>
+              </Border>
+            </StackPanel>
+
+            <!-- ── Shared illustration (middle panel; width set in code = viewport − one card column) ── -->
+            <!-- Two stacked layers so the chord cycle can CROSSFADE (outgoing out / incoming in), bottom-
+                 aligned so the art sits on the row's bottom edge in both states. -->
+            <!-- The height cap must track the CUSTOMIZE column, never the Recommended one: CustomColStack
+                 always shows both cards, while RecColStack's enable/disable card stays collapsed until the
+                 first summon is released — capping on that starts the art SHRUNK and pops it to full size
+                 on the reveal. -->
+            <Grid x:Name="IllustHost" Margin="16,0,0,0" VerticalAlignment="Bottom">
+              <Image x:Name="PracticeChordImage" Source="pack://application:,,,/Assets/controls.png" Opacity="0.9"
+                     Stretch="Uniform" MaxHeight="{Binding ActualHeight, ElementName=CustomColStack}"
+                     HorizontalAlignment="Center" VerticalAlignment="Bottom" IsHitTestVisible="False"/>
+              <Image x:Name="PracticeChordImageAlt" Opacity="0"
+                     Stretch="Uniform" MaxHeight="{Binding ActualHeight, ElementName=CustomColStack}"
+                     HorizontalAlignment="Center" VerticalAlignment="Bottom" IsHitTestVisible="False"/>
+              <!-- The Controller\*.png art carries an English "SIMPLE ... DISTINCT" legend baked into its
+                   pixels. Outside English, LayoutChordLegend covers each word with a window-coloured
+                   rectangle and draws the translated word over it; the canvas is sized to the rendered
+                   image in code, so the overlay tracks scaling. Always left-to-right: the legend is a
+                   physical scale. -->
+              <Canvas x:Name="ChordLegend" Visibility="Collapsed" IsHitTestVisible="False" FlowDirection="LeftToRight"
+                      HorizontalAlignment="Center" VerticalAlignment="Bottom">
+                <Rectangle x:Name="LegendCoverL" Fill="{DynamicResource UiWindowBg}"/>
+                <Rectangle x:Name="LegendCoverR" Fill="{DynamicResource UiWindowBg}"/>
+                <TextBlock x:Name="LegendWordL" Foreground="#73000000" FontWeight="SemiBold" TextAlignment="Right"/>
+                <TextBlock x:Name="LegendWordR" Foreground="#73000000" FontWeight="SemiBold" TextAlignment="Left"/>
+              </Canvas>
+            </Grid>
+
+            <!-- ── Customize column ───────────────────────────────────────── -->
+            <StackPanel x:Name="CustomColStack" Margin="16,0,0,0" VerticalAlignment="Top">
+              <!-- Parked header: reinstate only in step with the Recommended column's, or they stop aligning. -->
+              <!--
+              <TextBlock Text="{loc:T Customize}" FontSize="21" FontWeight="SemiBold"
+                         Foreground="{StaticResource HeadingInk}" Margin="0,0,0,8"
+                         TextAlignment="Center"/>
+              -->
+              <Border x:Name="CustomCard" CornerRadius="8" BorderThickness="1" BorderBrush="#33000000" Padding="14,9,12.6,10"
+                      Width="238" Height="95" Margin="0,4,0,0" HorizontalAlignment="Left">
+                <Grid>
+                  <Grid.RowDefinitions><RowDefinition Height="24"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                  <TextBlock Grid.Row="0" Text="{loc:T Try Opening a Wheel}" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center"/>
+                  <Border x:Name="CustomCheck" Grid.Row="0" Width="24" Height="24" CornerRadius="12" HorizontalAlignment="Right"
+                          Background="#3C405B" Visibility="Collapsed">
+                    <TextBlock Text="✓" Foreground="White" FontWeight="Bold" FontSize="15"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                  </Border>
+                  <ContentControl x:Name="CustomChordRow" Grid.Row="1"
+                                  HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Grid>
+              </Border>
+              <Border x:Name="CustomEnableCard" CornerRadius="8" BorderThickness="1" BorderBrush="#33000000" Padding="14,9,12.6,10"
+                      Width="238" Height="95" Margin="0,10,0,0" HorizontalAlignment="Left">
+                <Grid>
+                  <Grid.RowDefinitions><RowDefinition Height="24"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                  <TextBlock x:Name="CustomEnableTitle" Grid.Row="0" Text="{loc:T Try Disabling Wheels}" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center"/>
+                  <Border x:Name="CustomEnableCheck" Grid.Row="0" Width="24" Height="24" CornerRadius="12" HorizontalAlignment="Right"
+                          Background="#3C405B" Visibility="Collapsed">
+                    <TextBlock Text="✓" Foreground="White" FontWeight="Bold" FontSize="15"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                  </Border>
+                  <TextBlock x:Name="CustomEnableText" Grid.Row="1" FontSize="17.25" FontWeight="SemiBold"
+                             HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center"
+                             TextWrapping="Wrap" Text="{loc:T Fn1 + Fn2}"/>
+                </Grid>
+              </Border>
+            </StackPanel>
+          </StackPanel>
+        </Canvas>
+
+      </Grid>
+
+      <!-- 3 · Material: material + thickness tiles, all applied LIVE. The material also sets the sound
+              theme and the Game Grid's material, so the whole app starts coherent. -->
+      <StackPanel x:Name="StepLook" Visibility="Collapsed">
+        <!-- Two labelled, hairline-outlined groups: SIMPLE = the two flat materials, stacked in one narrow
+             column; DELUXE = the other six, in a 3×2 block. The 1*/3* column widths keep every swatch about
+             the same width across the groups. EnterLook builds the tiles and routes each token to its own
+             grid. Settings ▸ Customize mirrors this treatment — change both together. -->
+        <Grid Margin="0,4,0,8">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/><ColumnDefinition Width="8"/><ColumnDefinition Width="3*"/>
+          </Grid.ColumnDefinitions>
+          <Border Grid.Column="0" BorderBrush="#33000000" BorderThickness="1" CornerRadius="8" Padding="4,2,4,4">
+            <StackPanel>
+              <TextBlock Text="{loc:T Simple}" FontSize="12" FontWeight="SemiBold" Foreground="#88000000"
+                         HorizontalAlignment="Center" Margin="0,2,0,2"/>
+              <UniformGrid x:Name="MaterialTiles" Columns="1"/>
+            </StackPanel>
+          </Border>
+          <Border Grid.Column="2" BorderBrush="#33000000" BorderThickness="1" CornerRadius="8" Padding="4,2,4,4">
+            <StackPanel>
+              <TextBlock Text="{loc:T Deluxe}" FontSize="12" FontWeight="SemiBold" Foreground="#88000000"
+                         HorizontalAlignment="Center" Margin="0,2,0,2"/>
+              <UniformGrid x:Name="MaterialTilesPremium" Columns="3"/>
+            </StackPanel>
+          </Border>
+        </Grid>
+        <!-- Three thickness selectors plus a fourth tile = the sound on/off toggle, built in EnterLook. No
+             sound-THEME control: the material sets it (gloss → Digital, flat → Physical). -->
+        <UniformGrid x:Name="ThicknessTiles" Columns="4" Margin="0,0,0,10"/>
+        <!-- Shown while a Premium material is selected, or while the footer's "Accessibility..." button has
+             swapped in the accessibility panel. Both contents share this ONE card — the checkboxes REPLACE
+             the tip text, so the step never grows a second card row; see UpdateLookTipCard. -->
+        <!-- While the tip text occupies the card, the whole card is the tip link (TipCard_Click); the
+             accessibility panel shares this card, so the handler and the hand cursor are gated on which
+             content is up — see UpdateLookTipCard. -->
+        <Border x:Name="PremiumHintCard" Visibility="Collapsed" Background="#06000000" CornerRadius="8"
+                Padding="12,9" Margin="0,0,0,0" MouseLeftButtonUp="TipCard_Click"
+                Cursor="Hand" ToolTip="{loc:T Open the Tip Jar}">
+          <Grid>
+            <TextBlock x:Name="PremiumHintText" Style="{StaticResource Body}" FontSize="12" LineHeight="17" TextWrapping="Wrap" loc:LocRich.LookKey="Card" loc:LocRich.Source="Radiata is **completely free** with **no locked content or features**. Deluxe materials took a lot of work, and I'm really proud of them. If you enjoy them, please consider a [tip](https://getradiata.app/tip) : )"/>
+            <!-- The SAME options as Settings ▸ Customize ▸ Accessibility, built in BuildAccessibilityRow so
+                 labels/keys stay in one place; edits write live via the SystemConfig fields Customize's
+                 ApplyTo saves. WrapPanel so narrow DPI wraps instead of clipping. -->
+            <StackPanel x:Name="AccessibilityPanel" Visibility="Collapsed">
+              <!-- The Help chip opens the "accessibility" topic in a pop-up (HelpTopicWindow) rather than
+                   repeating the feature descriptions here — that is what keeps this card and Help in step
+                   as features are added. -->
+              <!-- No LineHeight override: this line carries the 15px help chip and Body's own 19 fits it. -->
+              <TextBlock Style="{StaticResource Body}" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,6"><Run x:Name="AccessibilityIntroRun"/><Run Text=" "/><InlineUIContainer
+                         BaselineAlignment="Center"><Button Style="{StaticResource HelpChip}" Click="AccessibilityHelp_Click"
+                         ToolTip="{loc:T Accessibility help}" AutomationProperties.Name="{loc:T Accessibility help}"/></InlineUIContainer></TextBlock>
+              <!-- Two centred rows: row 1 = toggle / swap / both-sticks, row 2 = hub / reduce-motion.
+                   Both filled in BuildAccessibilityRow. -->
+              <WrapPanel x:Name="AccessibilityRow" Orientation="Horizontal" HorizontalAlignment="Center"/>
+              <WrapPanel x:Name="AccessibilityRow2" Orientation="Horizontal" HorizontalAlignment="Center"/>
+            </StackPanel>
+          </Grid>
+        </Border>
+        <!-- Preview tip, parked (its setter in EnterLook is kept too). It belongs BELOW the tiles, where it
+             reads as their caption rather than an instruction to read before touching them.
+        <TextBlock x:Name="LookTryText" Style="{StaticResource Body}" FontWeight="SemiBold" Margin="0,4,0,0"
+                   Text="{loc:T 👉 Preview instantly by bringing up a wheel.}"/>
+        -->
+      </StackPanel>
+
+      <!-- 6 · Roll out: finish + good-to-know, each element in its own roundrect card. -->
+      <StackPanel x:Name="StepFinish" Visibility="Collapsed">
+        <!-- The sign-off lives in the window HEADER: this step's title is the sign-off line, with
+             FinishSummary ("Summon with: …") under the dots. The animated flower mark belongs to the tray
+             tip card below, which it flies out of. -->
+        <!-- BalanceCaveatColumns() distributes the VISIBLE cards (Steam is permanently hidden) across these
+             columns for roughly equal height; they live in the pool below. The MIDDLE column is zero-width
+             until "More Tips…" is clicked, so arrival is a plain half-and-half. -->
+        <Grid x:Name="CaveatGrid" Margin="-4,0,-4,0">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition x:Name="CaveatMidColDef" Width="0"/>
+            <ColumnDefinition Width="*"/>
+          </Grid.ColumnDefinitions>
+          <StackPanel x:Name="CaveatLeftCol"  Grid.Column="0"/>
+          <StackPanel x:Name="CaveatMidCol"   Grid.Column="1"/>
+          <StackPanel x:Name="CaveatRightCol" Grid.Column="2"/>
+        </Grid>
+        <!-- Card pool (never shown as-is): BalanceCaveatColumns() reparents the visible cards out of it. -->
+        <StackPanel x:Name="CaveatPool" Visibility="Collapsed">
+          <!-- The four headline cards: visible on arrival, sized Big. Their glyph/text are named so code
+               can shrink them to Medium once "More Tips…" reveals the rest of the pool. -->
+          <Border x:Name="CardEdit" Style="{StaticResource CaveatCard}">
+            <DockPanel>
+              <TextBlock x:Name="CardEditGlyph" Style="{StaticResource CardGlyphBig}" Text="🕹"/>
+              <TextBlock x:Name="CardEditText" Style="{StaticResource CardTextBig}" loc:LocRich.LookKey="Card" loc:LocRich.Source="**Edit wheels on the fly**: click the aiming stick (L3/R3) while a wheel is open."/>
+            </DockPanel>
+          </Border>
+          <Border x:Name="CardBorderless" Style="{StaticResource CaveatCard}">
+            <DockPanel>
+              <TextBlock x:Name="CardBorderlessGlyph" Style="{StaticResource CardGlyphBig}" Text="🖥"/>
+              <TextBlock x:Name="CardBorderlessText" Style="{StaticResource CardTextBig}" loc:LocRich.LookKey="Card" loc:LocRich.Source="To ensure Wheels are visible in-game, always choose **Borderless Windowed** in your game's Graphics settings."/>
+            </DockPanel>
+          </Border>
+          <!-- What the tray icon looks like, so the user can find it. -->
+          <Border x:Name="CardTray" Style="{StaticResource CaveatCard}">
+            <DockPanel>
+              <Border x:Name="TrayIconPreview" DockPanel.Dock="Left" Width="44" Height="44"
+                      Background="Transparent" Margin="0,0,10,0" VerticalAlignment="Top"/>
+              <TextBlock x:Name="CardTrayText" Style="{StaticResource CardTextBig}" loc:LocRich.LookKey="Card" loc:LocRich.Source="**This flower** in your system tray tells you it's running. Left-click it to open Settings."/>
+            </DockPanel>
+          </Border>
+          <!-- The rest of the pool: collapsed on arrival, revealed (at Medium size) by "More Tips…". -->
+          <Border x:Name="CardAnticheat" Style="{StaticResource CaveatCard}" Visibility="Collapsed">
+            <DockPanel>
+              <TextBlock Style="{StaticResource CardGlyphMedium}" Text="🛡"/>
+              <TextBlock Style="{StaticResource CardTextMedium}" loc:LocRich.LookKey="Card" loc:LocRich.Source="Radiata **never injects into games**. Input capture is common among apps and widely-supported. However, the strictest kernel anticheats may require Wheels to be set to Disabled while in-game. You can make this automatic using the **Passthru Mode** tab in Settings."/>
+            </DockPanel>
+          </Border>
+          <!-- Steam card: permanently hidden — unlike its neighbors in the pool, More Tips never reveals it. -->
+          <Border x:Name="CardSteam" Style="{StaticResource CaveatCard}" Visibility="Collapsed">
+            <DockPanel>
+              <TextBlock Style="{StaticResource CardGlyphMedium}" Text="🔀"/>
+              <TextBlock Style="{StaticResource CardTextMedium}"
+                         Text="{loc:T 'If buttons behave oddly in Steam games, try disabling Steam ▸ Settings ▸ &quot;PlayStation Controller Support&quot;.'}"/>
+            </DockPanel>
+          </Border>
+          <!-- Click-to-open shortcuts into Settings; the handlers work from the pool or the columns. -->
+          <Border x:Name="CardVolume" Style="{StaticResource CaveatCard}" Visibility="Collapsed"
+                  Cursor="Hand" MouseLeftButtonDown="CardVolume_Click" ToolTip="{loc:T Open Settings ▸ Advanced}">
+            <DockPanel>
+              <TextBlock Style="{StaticResource CardGlyphMedium}" Text="🔊"/>
+              <!-- The bold lead-in is UNDERLINED on the three click-through cards below — it's the link
+                   affordance for a card that opens a screen in the app. Don't underline a bold run on a
+                   card that isn't clickable. -->
+              <TextBlock Style="{StaticResource CardTextMedium}" loc:LocRich.LookKey="CardLink" loc:LocRich.Source="**D-Pad controls**: while a wheel is up, D-Pad Up/Down changes volume, and Left/Right Alt-Tabs in &amp; out of games — or customize it in Settings."/>
+            </DockPanel>
+          </Border>
+          <Border x:Name="CardSettings" Style="{StaticResource CaveatCard}" Visibility="Collapsed"
+                  Cursor="Hand" MouseLeftButtonDown="CardSettings_Click" ToolTip="{loc:T Open Settings}">
+            <DockPanel>
+              <TextBlock Style="{StaticResource CardGlyphMedium}" Text="🎨"/>
+              <TextBlock Style="{StaticResource CardTextMedium}" loc:LocRich.LookKey="CardLink" loc:LocRich.Source="**Settings** offers deeper customization options. Drag to reorder slices, choose custom icons and colors, mix and match sound effects and Materials, and more."/>
+            </DockPanel>
+          </Border>
+          <Border x:Name="CardHelp" Style="{StaticResource CaveatCard}" Visibility="Collapsed"
+                  Cursor="Hand" MouseLeftButtonDown="CardHelp_Click" ToolTip="{loc:T Open Settings ▸ Help}">
+            <DockPanel>
+              <TextBlock Style="{StaticResource CardGlyphMedium}" Text="📖"/>
+              <TextBlock Style="{StaticResource CardTextMedium}" loc:LocRich.LookKey="CardLink" loc:LocRich.Source="An in-app **Help** system contains indexed and searchable topics to explain features and settings in-depth. Check it out!"/>
+            </DockPanel>
+          </Border>
+          <!-- Expander: pinned to the bottom of the right column until clicked, then retired for good. -->
+          <Border x:Name="MoreTipsCard" Style="{StaticResource CaveatCard}" BorderBrush="#77000000" BorderThickness="1.5"
+                  Cursor="Hand" MouseLeftButtonDown="MoreTipsCard_MouseLeftButtonDown">
+            <!-- Explicit size, not a card tier: this card only ever shows in the Big arrival state. -->
+            <TextBlock Text="{loc:T More Tips…}" FontWeight="Bold" FontSize="14" HorizontalAlignment="Center"
+                       Style="{StaticResource Body}"/>
+          </Border>
+        </StackPanel>
+      </StackPanel>
+    </Grid>
+    </ScrollViewer>
+  </DockPanel>
+  </Grid>
+</Window>

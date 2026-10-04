@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Headless smoke test for the Settings UI's XAML; see Program.cs for what it catches and why.
+       NOT part of the app build: the root ControllerWheel.csproj excludes tools\**, and nothing references
+       this project. Run it by hand (or from a pre-release check) with:
+       dotnet run [dash dash]project tools\SettingsSmokeProbe
+       It references Radiata.dll from the Debug output rather than the project, so building the probe can
+       never perturb the app's own build; build Radiata first. Exit code 0 = pass, non-zero = failure count. -->
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>disable</Nullable>
+    <AssemblyName>SettingsSmokeProbe</AssemblyName>
+    <RootNamespace>Radiata.SettingsSmokeProbe</RootNamespace>
+    <!-- WinExe (WPF needs an STA message pump) but we want the console output to land in the terminal. -->
+    <DisableWinExeOutputInference>true</DisableWinExeOutputInference>
+    <!-- MSB3277: referencing Radiata.dll straight out of its output folder drags in its NuGet dependencies
+         (NAudio, MahApps icon packs, ViGEm…) as bare assembly references, and the SDK reports the usual
+         version-unification noise for them. Harmless here — the probe only touches WPF + Radiata's own
+         types — and silenced so a REAL failure isn't buried in a wall of warnings. -->
+    <NoWarn>$(NoWarn);MSB3277</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="Radiata">
+      <HintPath>..\..\bin\Debug\net8.0-windows\Radiata.dll</HintPath>
+    </Reference>
+    <!-- Core types (SystemConfig, ControllerKind) — needed for the functional tile/row checks, which call
+         Load/ApplyTo with real config objects. -->
+    <Reference Include="Radiata.Core">
+      <HintPath>..\..\bin\Debug\net8.0-windows\Radiata.Core.dll</HintPath>
+    </Reference>
+    <!-- The MDI icon pack reads its glyph data with a newer System.Text.Json than the shared framework's;
+         the icon-picker check builds glyphs, so the probe needs the copy Radiata ships. -->
+    <Reference Include="System.Text.Json">
+      <HintPath>..\..\bin\Debug\net8.0-windows\System.Text.Json.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+</Project>
