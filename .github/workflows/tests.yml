@@ -31,7 +31,9 @@ jobs:
       - name: Help + UI locale parity
         shell: pwsh
         run: |
-          & bin\Debug\net8.0-windows\Radiata.exe --check-locales locales.txt
+          # Radiata.exe is a WinExe: `&` returns before it exits, so the report would be read before it exists.
+          $p = Start-Process -FilePath bin\Debug\net8.0-windows\Radiata.exe -ArgumentList '--check-locales', 'locales.txt' -Wait -PassThru -NoNewWindow
+          if ($p.ExitCode -ne 0) { throw "--check-locales exited $($p.ExitCode)" }
           Get-Content locales.txt
           # Case-sensitive on purpose: the per-language summary lines read "0 stale", and the problem
           # markers the report emits are upper-case.
