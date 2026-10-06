@@ -128,11 +128,6 @@ Radiata has no analytics, no advertising, no account and no persistent identifie
 project's server for 2 things: an update check that sends just the app version, and crash reports
 that are sent only with your approval. See [`PRIVACY.md`](PRIVACY.md) for the details.
 
-## Contributing
-
-Contributions are welcome. Open an issue before starting anything beyond a small fix, and read
-[`CONTRIBUTING.md`](CONTRIBUTING.md). Contributions require agreement to the [CLA](CLA.md).
-
 ## Security
 
 Please report vulnerabilities privately; [`SECURITY.md`](SECURITY.md) says how, what is in scope, and how
