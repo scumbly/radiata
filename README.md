@@ -18,7 +18,7 @@
 
 Radiata is a feature-rich, controller-based radial menu utility for a Windows gaming PC.
 
-### Support Radiata ([**Tip Jar**](https://getradiata.app/tip))
+### Support Radiata
 
 Radiata is free and GPLv3, built by one person. If it earns a place on your gaming PC, your tips are incredibly appreciated.
 [**https://ko-fi.com/getradiata**](https://ko-fi.com/getradiata) 
