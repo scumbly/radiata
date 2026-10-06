@@ -1,7 +1,7 @@
 # Radiata engineering docs
 
-Short topic pages for contributors. Start with [ARCHITECTURE.md](ARCHITECTURE.md); the project overview is
-[../README.md](../README.md), the contribution workflow is [../CONTRIBUTING.md](../CONTRIBUTING.md) and the
+Short topic pages for reading and building the source. Start with [ARCHITECTURE.md](ARCHITECTURE.md); the
+project overview is [../README.md](../README.md), building and testing is [../CONTRIBUTING.md](../CONTRIBUTING.md) and the
 `config.json` schema is [../CONFIG.md](../CONFIG.md).
 
 | Page | Covers |
