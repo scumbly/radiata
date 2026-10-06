@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Platform-agnostic core: config model + (later) action/controller/wheel logic.
+       Targets plain net8.0 (NOT net8.0-windows) and references no WPF/WinForms, so it stays
+       portable for a future macOS/Avalonia shell. Same root namespace as the app to avoid churn. -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>ControllerWheel</RootNamespace>
+    <AssemblyName>Radiata.Core</AssemblyName>
+    <!-- RadiataPublic defaults to true in Directory.Build.props; see that file for how it is overridden. -->
+    <DefineConstants Condition="'$(RadiataPublic)' == 'true'">$(DefineConstants);PUBLIC_RELEASE</DefineConstants>
+  </PropertyGroup>
+
+</Project>

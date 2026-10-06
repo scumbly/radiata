@@ -1,0 +1,503 @@
+<UserControl x:Class="ControllerWheel.GameBrowserControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:loc="clr-namespace:ControllerWheel"
+             xmlns:local="clr-namespace:ControllerWheel">
+  <UserControl.Resources>
+    <local:ArtBrushConverter x:Key="ArtBrush"/>
+    <local:TileSizeConverter x:Key="TileSize"/>
+    <local:RoundedClipConverter x:Key="RoundClip"/>
+    <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+
+    <!-- Text ink that flips with the grid material (set in code; default = dark material). -->
+    <SolidColorBrush x:Key="GridInk" Color="#EEFFFFFF"/>
+    <!-- Material-driven accents (set in code alongside GridInk; defaults = classic dark look). -->
+    <SolidColorBrush x:Key="GridSelect" Color="#FFFFD24A"/>
+    <SolidColorBrush x:Key="GridDivider" Color="#33FFFFFF"/>
+    <SolidColorBrush x:Key="GridRule" Color="#22FFFFFF"/>
+    <!-- Per-material selection chrome: ring weight (Kawaii doubles it), the lift a selected tile takes
+         (Terra's 3D card), that card's exposed thickness below it, and a glow behind the tile (Salvage's
+         crescent halo). Defaults = no lift, no card edge; the glow is replaced with null in code. -->
+    <Thickness x:Key="GridSelectThickness">4</Thickness>
+    <TranslateTransform x:Key="GridSelectLift" Y="0"/>
+    <SolidColorBrush x:Key="GridCardEdgeFill" Color="Transparent"/>
+    <SolidColorBrush x:Key="GridCardEdgeStroke" Color="Transparent"/>
+    <Thickness x:Key="GridCardEdgeThickness">0</Thickness>
+    <DropShadowEffect x:Key="GridSelectGlow" ShadowDepth="0" BlurRadius="0" Opacity="0"/>
+    <!-- Liner stroke butted inside the selection ring (Kawaii only; see the InnerStroke border). -->
+    <SolidColorBrush x:Key="GridInnerStroke" Color="Transparent"/>
+    <Thickness x:Key="GridInnerStrokeThickness">0</Thickness>
+    <Thickness x:Key="GridInnerStrokeMargin">4</Thickness>
+    <CornerRadius x:Key="GridInnerStrokeRadius">8</CornerRadius>
+    <Thickness x:Key="GridOuterStrokeMargin">0</Thickness>
+    <Thickness x:Key="GridOuterStrokeThickness">0</Thickness>
+    <CornerRadius x:Key="GridOuterStrokeRadius">12</CornerRadius>
+
+    <!-- Game tile: key art background (falls back to dark), bright selection border. -->
+    <Style x:Key="GameTile" TargetType="ListBoxItem">
+      <Setter Property="Margin" Value="6"/>
+      <!-- 2:1 tiles laid out by a WrapPanel. Size is PER-TILE: favorites keep the base
+           column width; everything below the divider is one column narrower-per-row (smaller). The
+           divider row spans the full width, which is what forces the wrap between the two bands. -->
+      <Setter Property="Width">
+        <Setter.Value>
+          <MultiBinding Converter="{StaticResource TileSize}">
+            <Binding Path="ActualWidth" RelativeSource="{RelativeSource AncestorType=ListBox}"/>
+            <Binding Path="."/>
+          </MultiBinding>
+        </Setter.Value>
+      </Setter>
+      <Setter Property="Height">
+        <Setter.Value>
+          <MultiBinding Converter="{StaticResource TileSize}" ConverterParameter="h">
+            <Binding Path="ActualWidth" RelativeSource="{RelativeSource AncestorType=ListBox}"/>
+            <Binding Path="."/>
+          </MultiBinding>
+        </Setter.Value>
+      </Setter>
+      <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+      <Setter Property="VerticalContentAlignment" Value="Stretch"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <!-- Three layers, in paint order: the (Terra-only) card thickness behind, the tile body, and the
+               selection RING LAST so it sits ON TOP of the key art. The art lives in a rounded-CLIPPED
+               inner Grid (Border.CornerRadius does not clip children in WPF, hence the geometry
+               converter), inset by the rest ring's 3px; a thicker selected ring simply overlaps the art's
+               outer edge, which is the intent. -->
+          <ControlTemplate TargetType="ListBoxItem">
+            <!-- 10px of HEADROOM INSIDE the item (matched by +10 item height in TileSizeConverter, so the
+                 visible tile is unchanged): the ListBox's clip sits at the ScrollContentPresenter — INSIDE
+                 the control's padding — so no padding or scroll-nudging can save a transform that leaves
+                 the item's bounds (a top-row Terra lift / Kawaii outset stroke gets sliced when
+                 ScrollIntoView parks the row flush). Lifting into the item's own reserved space cannot
+                 clip, by construction. -->
+            <Grid Margin="0,10,0,0">
+              <!-- Terra's lifted-card thickness: same rect as the tile, revealed below the face when the
+                   face lifts. Transparent (so invisible) on every other material. -->
+              <Border x:Name="CardEdge" CornerRadius="12" Background="Transparent"
+                      BorderBrush="Transparent" BorderThickness="0"/>
+              <Grid x:Name="Body">
+                <!-- The black plate is inset 1px (radius 11, one less than the ring's 12) so its own
+                     antialiased corner cannot fringe OUTSIDE the ring's outer curve — coincident radii put a
+                     dark sliver just past each corner of the selection box, which read as the card "poking
+                     out" on the light materials (Kawaii / Terra). The ring is ≥3px, so it still covers it. -->
+                <Border x:Name="Tile" CornerRadius="11" Margin="1" Background="#FF000000"/>
+                <!-- Clip radius 8, not the concentric 9 (radius 12 less the 3px inset): rounding a touch
+                     TIGHTER than concentric tucks the art's corner just inside the selection ring's inner
+                     curve, so no sliver of cover art (or its antialiased fringe) can peek out around the
+                     outline at the corners. -->
+                <Grid x:Name="Content" Margin="3">
+                  <Grid.Clip>
+                    <MultiBinding Converter="{StaticResource RoundClip}" ConverterParameter="8">
+                      <Binding Path="ActualWidth"  RelativeSource="{RelativeSource Self}"/>
+                      <Binding Path="ActualHeight" RelativeSource="{RelativeSource Self}"/>
+                    </MultiBinding>
+                  </Grid.Clip>
+                  <ContentPresenter/>
+                </Grid>
+                <!-- Twin of InnerStroke on the far side of the ring. It is drawn BEFORE the ring and is one
+                     pixel thicker than its outset, so it tucks UNDER the ring's outer edge: WPF derives a
+                     border's inner curve from its own radius and weight, and that derivation doesn't land
+                     exactly on the ring's outer curve — butting the two left a hairline gap at the corners.
+                     Overlapping and letting the ring paint over the excess removes the seam by construction. -->
+                <Border x:Name="OuterStroke" IsHitTestVisible="False"
+                        CornerRadius="{DynamicResource GridOuterStrokeRadius}"
+                        Margin="{DynamicResource GridOuterStrokeMargin}"
+                        BorderThickness="0" BorderBrush="Transparent"/>
+                <!-- Twin of OuterStroke on the ring's inside: same construction, drawn before the ring and
+                     a pixel thicker than its inset. -->
+                <Border x:Name="InnerStroke" IsHitTestVisible="False"
+                        CornerRadius="{DynamicResource GridInnerStrokeRadius}"
+                        Margin="{DynamicResource GridInnerStrokeMargin}"
+                        BorderThickness="0" BorderBrush="Transparent"/>
+                <Border x:Name="Ring" CornerRadius="12" BorderThickness="3" BorderBrush="#40000000"
+                        IsHitTestVisible="False"/>
+              </Grid>
+            </Grid>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsSelected" Value="True">
+                <Setter TargetName="Ring" Property="BorderBrush" Value="{DynamicResource GridSelect}"/>
+                <Setter TargetName="Ring" Property="BorderThickness" Value="{DynamicResource GridSelectThickness}"/>
+                <Setter TargetName="Tile" Property="Effect" Value="{DynamicResource GridSelectGlow}"/>
+                <Setter TargetName="Body" Property="RenderTransform" Value="{DynamicResource GridSelectLift}"/>
+                <Setter TargetName="CardEdge" Property="Background" Value="{DynamicResource GridCardEdgeFill}"/>
+                <Setter TargetName="CardEdge" Property="BorderBrush" Value="{DynamicResource GridCardEdgeStroke}"/>
+                <Setter TargetName="CardEdge" Property="BorderThickness" Value="{DynamicResource GridCardEdgeThickness}"/>
+                <Setter TargetName="InnerStroke" Property="BorderBrush" Value="{DynamicResource GridInnerStroke}"/>
+                <Setter TargetName="InnerStroke" Property="BorderThickness" Value="{DynamicResource GridInnerStrokeThickness}"/>
+                <Setter TargetName="OuterStroke" Property="BorderBrush" Value="{DynamicResource GridInnerStroke}"/>
+                <Setter TargetName="OuterStroke" Property="BorderThickness" Value="{DynamicResource GridOuterStrokeThickness}"/>
+              </Trigger>
+              <!-- The favorites divider shares this container style; strip the tile's black plate and dark
+                   rest ring so the row is nothing but the one material-coloured stroke its DataTemplate
+                   draws. -->
+              <DataTrigger Binding="{Binding IsDivider}" Value="True">
+                <Setter TargetName="Tile" Property="Background" Value="Transparent"/>
+                <Setter TargetName="Ring" Property="BorderThickness" Value="0"/>
+              </DataTrigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <!-- Launcher chip in the top strip: icon over name. A chip that isn't applicable is left out of the
+         ItemsSource entirely (BuildLauncherStrip), not hidden in place. -->
+    <Style x:Key="LauncherTile" TargetType="ListBoxItem">
+      <Setter Property="Margin" Value="4"/>
+      <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+      <Setter Property="VerticalContentAlignment" Value="Stretch"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ListBoxItem">
+            <Border x:Name="LTile" CornerRadius="8" Background="#1FFFFFFF"
+                    BorderThickness="2" BorderBrush="#22FFFFFF">
+              <ContentPresenter/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsSelected" Value="True">
+                <Setter TargetName="LTile" Property="BorderBrush" Value="#FF23558C"/>
+                <Setter TargetName="LTile" Property="BorderThickness" Value="3"/>
+                <Setter TargetName="LTile" Property="Background" Value="#33FFFFFF"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <!-- Grid tile templates: real game vs. "Open <launcher>" entry vs. the favorites divider. -->
+    <local:GameTileTemplateSelector x:Key="TileSelector">
+      <local:GameTileTemplateSelector.Divider>
+        <DataTemplate>
+          <!-- Band divider between pinned favorites and the rest: one 5px stroke with rounded
+               ends, coloured per material in code (dark ink on light materials, light on dark). -->
+          <Grid VerticalAlignment="Center">
+            <Rectangle Height="5" RadiusX="2.5" RadiusY="2.5" Fill="{DynamicResource GridDivider}"
+                       VerticalAlignment="Center" Margin="4,0">
+              <!-- Hard 2px drop straight down at 50% — a cut-seam shadow, on every material. -->
+              <Rectangle.Effect>
+                <DropShadowEffect Color="Black" Direction="270" ShadowDepth="2"
+                                  BlurRadius="0" Opacity="0.85"/>
+              </Rectangle.Effect>
+            </Rectangle>
+          </Grid>
+        </DataTemplate>
+      </local:GameTileTemplateSelector.Divider>
+      <local:GameTileTemplateSelector.Game>
+        <DataTemplate>
+          <!-- Art fills the whole tile under a dimming scrim (dropped for a raw-cover pick). A logo sits
+               centered over it; with no logo the title stands in for one, scaled to fit. -->
+          <Grid>
+            <Border Background="{Binding Art, Converter={StaticResource ArtBrush}}"/>
+
+            <!-- Darken (~35%) so white logos / titles aren't harsh on light covers. Dropped on a
+                 "raw cover" pick (ShowOverlay=false) so the cover shows at full brightness. -->
+            <Rectangle Fill="#59000000"
+                       Visibility="{Binding ShowOverlay, Converter={StaticResource BoolToVis}}"/>
+
+            <!-- Logo over the art (blank when there's no logo). Soft shadow lifts it off busy art.
+                 Hidden entirely on a "raw cover" pick (ShowOverlay=false). -->
+            <Image Source="{Binding Logo}" Stretch="Uniform" Margin="12"
+                   Visibility="{Binding ShowOverlay, Converter={StaticResource BoolToVis}}"
+                   HorizontalAlignment="Center" VerticalAlignment="Center">
+              <Image.Effect>
+                <DropShadowEffect Color="#FF000000" BlurRadius="7" ShadowDepth="0" Opacity="0.85"/>
+              </Image.Effect>
+            </Image>
+
+            <!-- No logo: treat the title like a logo — centered on the art with a soft shadow. Shown only
+                 when there's no logo AND the overlay isn't suppressed (raw-cover pick). The down-only
+                 Viewbox SCALES a long title to fit the tile instead of truncating it. -->
+            <Viewbox Stretch="Uniform" StretchDirection="DownOnly" Margin="12"
+                     HorizontalAlignment="Center" VerticalAlignment="Center">
+              <Viewbox.Style>
+                <Style TargetType="Viewbox">
+                  <Setter Property="Visibility" Value="Collapsed"/>
+                  <Style.Triggers>
+                    <MultiDataTrigger>
+                      <MultiDataTrigger.Conditions>
+                        <Condition Binding="{Binding Logo}" Value="{x:Null}"/>
+                        <Condition Binding="{Binding ShowOverlay}" Value="True"/>
+                      </MultiDataTrigger.Conditions>
+                      <Setter Property="Visibility" Value="Visible"/>
+                    </MultiDataTrigger>
+                  </Style.Triggers>
+                </Style>
+              </Viewbox.Style>
+              <TextBlock Text="{Binding Title}" Foreground="#FFFFFFFF" MaxWidth="520"
+                         FontFamily="Franklin Gothic Medium, Arial Black, Segoe UI"
+                         FontSize="54" FontWeight="Bold" TextWrapping="Wrap"
+                         LineHeight="48" LineStackingStrategy="BlockLineHeight"
+                         TextAlignment="Center">
+                <TextBlock.Effect>
+                  <DropShadowEffect Color="#FF000000" BlurRadius="7" ShadowDepth="0" Opacity="0.9"/>
+                </TextBlock.Effect>
+              </TextBlock>
+            </Viewbox>
+
+            <!-- Cycle position indicator: one dot per stop, current one highlighted. COVER (☐) dots sit
+                 along the BOTTOM edge; LOGO (△) dots along the TOP — so the row tells you which axis
+                 you're cycling. Opacity is driven from code (full on each press, fades ~1.5s after). -->
+            <ItemsControl ItemsSource="{Binding Dots}" Opacity="{Binding DotsOpacity}"
+                          HorizontalAlignment="Center" IsHitTestVisible="False">
+              <ItemsControl.Style>
+                <Style TargetType="ItemsControl">
+                  <Setter Property="VerticalAlignment" Value="Bottom"/>
+                  <Setter Property="Margin" Value="0,0,0,8"/>
+                  <Style.Triggers>
+                    <DataTrigger Binding="{Binding DotsAtTop}" Value="True">
+                      <Setter Property="VerticalAlignment" Value="Top"/>
+                      <Setter Property="Margin" Value="0,8,0,0"/>
+                    </DataTrigger>
+                  </Style.Triggers>
+                </Style>
+              </ItemsControl.Style>
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <Ellipse Margin="2.5,0" VerticalAlignment="Center">
+                    <Ellipse.Effect>
+                      <DropShadowEffect Color="#FF000000" BlurRadius="4" ShadowDepth="0" Opacity="0.9"/>
+                    </Ellipse.Effect>
+                    <Ellipse.Style>
+                      <Style TargetType="Ellipse">
+                        <Setter Property="Width"  Value="6"/>
+                        <Setter Property="Height" Value="6"/>
+                        <Setter Property="Fill"   Value="#66FFFFFF"/>
+                        <Style.Triggers>
+                          <DataTrigger Binding="{Binding IsActive}" Value="True">
+                            <Setter Property="Width"  Value="9"/>
+                            <Setter Property="Height" Value="9"/>
+                            <Setter Property="Fill"   Value="#FFFFFFFF"/>
+                          </DataTrigger>
+                        </Style.Triggers>
+                      </Style>
+                    </Ellipse.Style>
+                  </Ellipse>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <!-- Cover-cycle loading spinner: shown (after a short delay) while a ☐ press fetches art, so a
+                 network round-trip doesn't look like a dropped input. Scrim + a rotating arc; the spin
+                 animation only runs while IsLoading (DataTrigger enter/exit), not on every idle tile. -->
+            <Grid Visibility="{Binding IsLoading, Converter={StaticResource BoolToVis}}" IsHitTestVisible="False">
+              <Rectangle Fill="#73000000"/>
+              <Path HorizontalAlignment="Center" VerticalAlignment="Center"
+                    Stroke="#FFFFFFFF" StrokeThickness="4"
+                    StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                    Data="M 20,3 A 17,17 0 1 1 3,20" RenderTransformOrigin="0.5,0.5">
+                <Path.RenderTransform><RotateTransform/></Path.RenderTransform>
+                <Path.Effect>
+                  <DropShadowEffect Color="#FF000000" BlurRadius="6" ShadowDepth="0" Opacity="0.8"/>
+                </Path.Effect>
+                <Path.Style>
+                  <Style TargetType="Path">
+                    <Style.Triggers>
+                      <!-- Spin (not IsLoading): the rotation is additionally gated on Reduce Motion being
+                           off — under it the arc + scrim still show, just stationary. -->
+                      <DataTrigger Binding="{Binding Spin}" Value="True">
+                        <DataTrigger.EnterActions>
+                          <BeginStoryboard x:Name="SpinSb">
+                            <Storyboard RepeatBehavior="Forever">
+                              <DoubleAnimation
+                                  Storyboard.TargetProperty="(UIElement.RenderTransform).(RotateTransform.Angle)"
+                                  From="0" To="360" Duration="0:0:0.85"/>
+                            </Storyboard>
+                          </BeginStoryboard>
+                        </DataTrigger.EnterActions>
+                        <DataTrigger.ExitActions>
+                          <StopStoryboard BeginStoryboardName="SpinSb"/>
+                        </DataTrigger.ExitActions>
+                      </DataTrigger>
+                    </Style.Triggers>
+                  </Style>
+                </Path.Style>
+              </Path>
+            </Grid>
+          </Grid>
+        </DataTemplate>
+      </local:GameTileTemplateSelector.Game>
+      <local:GameTileTemplateSelector.Launcher>
+        <DataTemplate>
+          <Grid Background="#14233A">
+            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+              <Image Source="{Binding Art}" Width="72" Height="72" HorizontalAlignment="Center"/>
+              <!-- No subtitle line: this card only ever appears under a storefront filter, where every
+                   other card is that same storefront, so naming the kind says nothing. Narrator still
+                   hears it (UiText.Grid.StorefrontSuffix). -->
+              <TextBlock Text="{Binding Title}" Foreground="#FFFFFFFF" FontSize="22" FontWeight="SemiBold"
+                         HorizontalAlignment="Center" Margin="0,10,0,0"/>
+            </StackPanel>
+          </Grid>
+        </DataTemplate>
+      </local:GameTileTemplateSelector.Launcher>
+    </local:GameTileTemplateSelector>
+  </UserControl.Resources>
+
+  <Grid>
+    <!-- Dim scrim so the panel stays readable over a game/desktop. -->
+    <Rectangle Fill="#99000000"/>
+
+    <!-- Floating card (size set in code from the primary screen). -->
+    <Border x:Name="Card" HorizontalAlignment="Center" VerticalAlignment="Center"
+            CornerRadius="14" Background="#F00A0A14" BorderBrush="#40FFFFFF" BorderThickness="1">
+      <Grid>
+        <!-- Material texture layer UNDER the content: salvage's rusted-metal photo / reactor's circuit
+             board, painted over the card fill. Transparent on every other material. Follows the card's
+             rounded corner the same way InnerEdge does (Border doesn't clip children to its radius). -->
+        <Border x:Name="MaterialLayer" IsHitTestVisible="False"
+                Margin="1" CornerRadius="13" Background="Transparent"/>
+        <!-- Reactor's three parallax circuit planes (far → back → front), and Kawaii's ambient star field.
+             Both sit BEHIND the content (no ZIndex — the DockPanel below paints over them) and are
+             populated from code only for their own material; empty and inert otherwise. Clipped to the
+             card's rounded rect so a sheared plane can't paint over the corner. -->
+        <Grid x:Name="BoardLayer" IsHitTestVisible="False" Margin="1">
+          <Grid.Clip>
+            <MultiBinding Converter="{StaticResource RoundClip}" ConverterParameter="13">
+              <Binding Path="ActualWidth"  RelativeSource="{RelativeSource Self}"/>
+              <Binding Path="ActualHeight" RelativeSource="{RelativeSource Self}"/>
+            </MultiBinding>
+          </Grid.Clip>
+        </Grid>
+        <!-- Kawaii's star field is the exception to the "behind the content" rule above: the grid's tiles
+             cover nearly the whole card, so a field painted behind them was invisible. ZIndex 2 (above the
+             InnerEdge) twinkles it OVER the tiles, like the hub's sparkles over the cloud. -->
+        <Canvas x:Name="SparkleLayer" IsHitTestVisible="False" ClipToBounds="True" Margin="1"
+                Panel.ZIndex="2"/>
+        <!-- Bright inner edge nested just inside the rim (liquid-glass "lit lip"); brush AND its
+             feathering BlurEffect set in code (SetMaterial) — the blur exists only on Gloss Dark, so
+             declaring it here kept an effect surface alive on every material. -->
+        <Border x:Name="InnerEdge" IsHitTestVisible="False" Panel.ZIndex="1"
+                Margin="1" CornerRadius="13" BorderThickness="1.2" BorderBrush="Transparent"/>
+      <DockPanel Margin="18,14,18,16">
+        <!-- One-time first-open tip: fine-tune each game's cover/logo with Select/Start. Non-interactive;
+             auto-hides after a few seconds or on the first navigation. Shown once (SystemConfig.GameGridTipSeen).
+             The banner is always DARK, so its text is fixed LIGHT (not GridInk — that follows the material
+             and went dark-on-dark on light materials). -->
+        <Border x:Name="TipBanner" DockPanel.Dock="Top" Visibility="Collapsed" IsHitTestVisible="False"
+                Background="#E62A2A3E" CornerRadius="8" Margin="0,0,0,12" Padding="12,8">
+          <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+            <TextBlock Text="{loc:T 'Tip — tune each game\'s art:'}" Foreground="#F2F2F6" FontSize="13"
+                       FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,10,0"/>
+            <local:ControllerButton Button="Select" Height="20" VerticalAlignment="Center" Margin="0,0,5,0"/>
+            <TextBlock Text="{loc:T Cover}" Foreground="#F2F2F6" FontSize="13" VerticalAlignment="Center" Margin="0,0,16,0"/>
+            <local:ControllerButton Button="Start" Height="20" VerticalAlignment="Center" Margin="0,0,5,0"/>
+            <TextBlock Text="{loc:T Logo}" Foreground="#F2F2F6" FontSize="13" VerticalAlignment="Center"/>
+          </StackPanel>
+        </Border>
+
+        <!-- Launcher / storefront strip: selecting filters the grid below. The band stays DARK regardless
+             of grid material so storefront icons/logos (designed for dark) always read. -->
+        <Border DockPanel.Dock="Top" Background="#E610141E" CornerRadius="8" Margin="0,0,0,14" Padding="6,2">
+        <ListBox x:Name="Launchers" Background="Transparent" BorderThickness="0"
+                 Focusable="False"
+                 ItemContainerStyle="{StaticResource LauncherTile}"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                 ScrollViewer.VerticalScrollBarVisibility="Disabled">
+          <ListBox.ItemsPanel>
+            <ItemsPanelTemplate><UniformGrid Rows="1"/></ItemsPanelTemplate>
+          </ListBox.ItemsPanel>
+          <ListBox.ItemTemplate>
+            <DataTemplate>
+              <StackPanel Margin="0,7,0,7">
+                <Image Source="{Binding Icon}" Width="34" Height="34" HorizontalAlignment="Center"/>
+                <TextBlock Text="{Binding Name}" Foreground="#E8FFFFFF" FontSize="12"
+                           HorizontalAlignment="Center" Margin="2,4,2,0"
+                           TextTrimming="CharacterEllipsis"/>
+              </StackPanel>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+        </Border>
+
+        <Border DockPanel.Dock="Bottom" BorderBrush="{DynamicResource GridRule}" BorderThickness="0,1,0,0"
+                Margin="0,12,0,0" Padding="0,10,0,0">
+          <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+            <StackPanel.Resources>
+              <Style TargetType="TextBlock" x:Key="Caption">
+                <Setter Property="Foreground" Value="{DynamicResource GridInk}"/>
+                <Setter Property="FontSize" Value="13"/>
+                <Setter Property="VerticalAlignment" Value="Center"/>
+                <Setter Property="Margin" Value="7,0,26,0"/>
+              </Style>
+              <!-- Glossy-dark controller buttons, drawn geometrically; consistent on any material. -->
+              <Style TargetType="local:ControllerButton">
+                <Setter Property="Height" Value="24"/>
+                <Setter Property="VerticalAlignment" Value="Center"/>
+                <Setter Property="Margin" Value="0,0,2,0"/>
+              </Style>
+            </StackPanel.Resources>
+
+            <local:ControllerButton Button="L1"/>
+            <local:ControllerButton Button="R1"/>
+            <TextBlock Text="{loc:T Filter}" Style="{StaticResource Caption}"/>
+
+            <local:ControllerButton Button="Cross"/>
+            <TextBlock x:Name="SelectCaption" Text="{loc:T Select}" Style="{StaticResource Caption}"/>
+
+            <local:ControllerButton Button="Circle"/>
+            <TextBlock Text="{loc:T Cancel}" Style="{StaticResource Caption}"/>
+
+            <!-- Face buttons carry personalization; art cycling lives on Select/Start, which render as
+                 spelled-out pills (neither pad family has a recognisable symbol for them). -->
+            <local:ControllerButton Button="Triangle"/>
+            <!-- Reads "Unfavorite" while the selector sits on an already-favorited game — △ toggles, so the
+                 tip names what the press will actually do. -->
+            <TextBlock x:Name="FavoriteCaption" Text="{loc:T Favorite}" Style="{StaticResource Caption}"/>
+
+            <local:ControllerButton Button="Square"/>
+            <TextBlock Text="{loc:T Hide (Hold)}" Style="{StaticResource Caption}"/>
+
+            <local:ControllerButton Button="Select"/>
+            <TextBlock Text="{loc:T Change Art}" Style="{StaticResource Caption}"/>
+
+            <local:ControllerButton Button="Start"/>
+            <TextBlock Text="{loc:T Change Logo}" Margin="7,0,0,0" Style="{StaticResource Caption}"/>
+          </StackPanel>
+        </Border>
+
+        <ListBox x:Name="List" Background="Transparent" BorderThickness="0"
+                 ItemContainerStyle="{StaticResource GameTile}"
+                 ItemTemplateSelector="{StaticResource TileSelector}"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                 ScrollViewer.VerticalScrollBarVisibility="Hidden">
+          <ListBox.ItemsPanel>
+            <ItemsPanelTemplate>
+              <WrapPanel/>
+            </ItemsPanelTemplate>
+          </ListBox.ItemsPanel>
+        </ListBox>
+      </DockPanel>
+      </Grid>
+    </Border>
+
+    <!-- Reactor's selection spark: a slow comet lapping the focused tile's outline. Last child of the
+         OUTER grid, so it draws above the card and its coordinates are plain control space (which is what
+         the selected container transforms into). Populated from code for the reactor material only. -->
+    <Canvas x:Name="SparkLayer" IsHitTestVisible="False"/>
+
+    <!-- Storefront hide-confirm toast: the □-hold on a storefront card raises this controller-driven
+         confirm rather than committing outright. ✕ commits the hide, ○ cancels. Same dark banner treatment
+         as TipBanner so it reads on every material. -->
+    <Border x:Name="HideConfirmToast" Visibility="Collapsed" IsHitTestVisible="False" Panel.ZIndex="3"
+            HorizontalAlignment="Center" VerticalAlignment="Center"
+            Background="#E62A2A3E" CornerRadius="8" BorderBrush="#40FFFFFF" BorderThickness="1"
+            Padding="18,12">
+      <StackPanel>
+        <TextBlock x:Name="HideConfirmTitle" Foreground="#F2F2F6" FontSize="14" FontWeight="SemiBold"
+                   HorizontalAlignment="Center"/>
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,10,0,0">
+          <local:ControllerButton Button="Cross" Height="20" VerticalAlignment="Center" Margin="0,0,6,0"/>
+          <TextBlock x:Name="HideConfirmAction" Foreground="#F2F2F6" FontSize="13"
+                     VerticalAlignment="Center" Margin="0,0,22,0"/>
+          <local:ControllerButton Button="Circle" Height="20" VerticalAlignment="Center" Margin="0,0,6,0"/>
+          <TextBlock Text="{loc:T Cancel}" Foreground="#F2F2F6" FontSize="13" VerticalAlignment="Center"/>
+        </StackPanel>
+      </StackPanel>
+    </Border>
+  </Grid>
+</UserControl>

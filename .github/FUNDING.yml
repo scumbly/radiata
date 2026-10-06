@@ -1,0 +1,5 @@
+# Renders the "Sponsor" button on the repository page.
+# Keep in sync with the Tip Jar links in Settings/SettingsWindow.xaml and Setup/OnboardingWindow.xaml,
+# which point at getradiata.app/tip.
+ko_fi: getradiata
+custom: ["https://getradiata.app/tip"]

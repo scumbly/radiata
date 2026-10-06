@@ -1,0 +1,62 @@
+<Application x:Class="ControllerWheel.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             ShutdownMode="OnExplicitShutdown">
+  <!-- No StartupUri — we manage lifetime manually in App.xaml.cs -->
+  <Application.Resources>
+    <!-- ============================================================================================
+         APP CHROME PALETTE (non-wheel surfaces: Settings, Onboarding, dialogs, editors).
+         The radial wheels/overlay have their own palette (GlossDarkPalette etc.) and do NOT use these.
+         Every chrome surface references these named resources — retoning the whole app = editing
+         ONLY the Color values below. Each entry is a Color (for Color-typed uses) plus a
+         SolidColorBrush of the same name (for Brush-typed uses). Colors are defined before the
+         brushes that reference them (StaticResource is order-sensitive).
+         ============================================================================================ -->
+
+    <!-- Colors -->
+    <Color x:Key="UiNoticeBgColor">#FFFFFF</Color>        <!-- notice/tip card bg — lifts off the window bg -->
+    <Color x:Key="UiWindowBgColor">#F5F8FC</Color>        <!-- window/base background -->
+    <Color x:Key="UiSubTabHoverBgColor">#F2F5FA</Color>   <!-- sub-tab hover bg -->
+    <Color x:Key="UiCardBgColor">#F0F4F9</Color>          <!-- card bg (slice editor) -->
+    <Color x:Key="UiTabHoverBgColor">#EDF2F8</Color>      <!-- tab hover bg -->
+    <Color x:Key="UiHoverBgColor">#ECF1F7</Color>         <!-- button/combo hover bg -->
+    <Color x:Key="UiSubTabRestBgColor">#EAEFF6</Color>    <!-- sub-tab rest bg -->
+    <Color x:Key="UiTabRestBgColor">#E5EBF3</Color>       <!-- tab rest bg -->
+    <Color x:Key="UiPressedBgColor">#DFE6F0</Color>       <!-- pressed bg -->
+    <Color x:Key="UiCardBorderColor">#D5DCE7</Color>      <!-- card border (slice editor) -->
+    <Color x:Key="UiChipBorderColor">#D2D9E5</Color>      <!-- chip border -->
+    <Color x:Key="UiSubTabBorderColor">#CFD6E2</Color>    <!-- sub-tab border -->
+    <Color x:Key="UiBorderColor">#CAD2DF</Color>          <!-- primary border -->
+    <Color x:Key="UiBorderHoverColor">#B8C0D0</Color>     <!-- hover border -->
+    <Color x:Key="UiBorderDefaultBtnColor">#ACB5C7</Color><!-- default-button border -->
+    <Color x:Key="UiGhostInkColor">#B2B9C6</Color>        <!-- ghost/placeholder text -->
+    <Color x:Key="UiBorderFocusColor">#9BA4B6</Color>     <!-- focus/pressed border -->
+    <Color x:Key="UiMutedInkColor">#838C9B</Color>        <!-- muted ink / drop-arrow / link -->
+    <Color x:Key="UiTabInkColor">#545C6A</Color>          <!-- tab text (unselected) -->
+    <Color x:Key="HeadingInkColor">#3C4452</Color>        <!-- heading ink (Bold 15.5px section headings) -->
+    <Color x:Key="UiBodyInkColor">#353B45</Color>         <!-- body/button text -->
+
+    <!-- Brushes -->
+    <SolidColorBrush x:Key="UiNoticeBg" Color="{StaticResource UiNoticeBgColor}"/>
+    <SolidColorBrush x:Key="UiWindowBg" Color="{StaticResource UiWindowBgColor}"/>
+    <SolidColorBrush x:Key="UiSubTabHoverBg" Color="{StaticResource UiSubTabHoverBgColor}"/>
+    <SolidColorBrush x:Key="UiCardBg" Color="{StaticResource UiCardBgColor}"/>
+    <SolidColorBrush x:Key="UiTabHoverBg" Color="{StaticResource UiTabHoverBgColor}"/>
+    <SolidColorBrush x:Key="UiHoverBg" Color="{StaticResource UiHoverBgColor}"/>
+    <SolidColorBrush x:Key="UiSubTabRestBg" Color="{StaticResource UiSubTabRestBgColor}"/>
+    <SolidColorBrush x:Key="UiTabRestBg" Color="{StaticResource UiTabRestBgColor}"/>
+    <SolidColorBrush x:Key="UiPressedBg" Color="{StaticResource UiPressedBgColor}"/>
+    <SolidColorBrush x:Key="UiCardBorder" Color="{StaticResource UiCardBorderColor}"/>
+    <SolidColorBrush x:Key="UiChipBorder" Color="{StaticResource UiChipBorderColor}"/>
+    <SolidColorBrush x:Key="UiSubTabBorder" Color="{StaticResource UiSubTabBorderColor}"/>
+    <SolidColorBrush x:Key="UiBorder" Color="{StaticResource UiBorderColor}"/>
+    <SolidColorBrush x:Key="UiBorderHover" Color="{StaticResource UiBorderHoverColor}"/>
+    <SolidColorBrush x:Key="UiBorderDefaultBtn" Color="{StaticResource UiBorderDefaultBtnColor}"/>
+    <SolidColorBrush x:Key="UiGhostInk" Color="{StaticResource UiGhostInkColor}"/>
+    <SolidColorBrush x:Key="UiBorderFocus" Color="{StaticResource UiBorderFocusColor}"/>
+    <SolidColorBrush x:Key="UiMutedInk" Color="{StaticResource UiMutedInkColor}"/>
+    <SolidColorBrush x:Key="UiTabInk" Color="{StaticResource UiTabInkColor}"/>
+    <SolidColorBrush x:Key="HeadingInk" Color="{StaticResource HeadingInkColor}"/>
+    <SolidColorBrush x:Key="UiBodyInk" Color="{StaticResource UiBodyInkColor}"/>
+  </Application.Resources>
+</Application>

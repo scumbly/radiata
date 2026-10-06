@@ -1,0 +1,37 @@
+<Window x:Class="ControllerWheel.AppPickerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:loc="clr-namespace:ControllerWheel"
+        Title="{loc:T Installed Apps}" Width="440" Height="560"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="CanResize" ShowInTaskbar="False">
+  <DockPanel Margin="12">
+    <TextBox x:Name="SearchBox" DockPanel.Dock="Top" Padding="6,5" FontSize="13"
+             TextChanged="SearchBox_TextChanged"/>
+    <TextBlock DockPanel.Dock="Top" Margin="2,4,0,6" FontSize="11.5" Foreground="#888"
+               Text="{loc:T Everything with a Start-menu entry — including Microsoft Store apps.}"/>
+
+    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
+      <Button x:Name="BtnOk" Content="{loc:T Select}" Width="90" Padding="0,4" IsDefault="True"
+              IsEnabled="False" Click="BtnOk_Click"/>
+      <Button Content="{loc:T Cancel}" Width="90" Padding="0,4" Margin="8,0,0,0" IsCancel="True"/>
+    </StackPanel>
+
+    <ListBox x:Name="AppList" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+             VirtualizingPanel.ScrollUnit="Pixel"
+             SelectionChanged="AppList_SelectionChanged"
+             MouseDoubleClick="AppList_MouseDoubleClick">
+      <ListBox.ItemTemplate>
+        <DataTemplate>
+          <StackPanel Orientation="Horizontal" Margin="2,3">
+            <Border Width="28" Height="28" VerticalAlignment="Center">
+              <Image Source="{Binding Icon}" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"/>
+            </Border>
+            <TextBlock Text="{Binding Name}" VerticalAlignment="Center" Margin="10,0,0,0"
+                       FontSize="13" TextTrimming="CharacterEllipsis"/>
+          </StackPanel>
+        </DataTemplate>
+      </ListBox.ItemTemplate>
+    </ListBox>
+  </DockPanel>
+</Window>

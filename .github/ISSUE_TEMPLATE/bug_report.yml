@@ -1,0 +1,109 @@
+name: Bug report
+description: Something in Radiata doesn't work the way it should
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Controller problems depend on the exact setup, so the details below matter.
+
+        Before you file, the searchable Help at [getradiata.app/help](https://getradiata.app/help/) covers the common causes (controller not detected, double input, HidHide and driver problems, Steam Input).
+
+        **Security problems do not go here.** Please follow [SECURITY.md](https://github.com/scumbly/radiata/security/policy) instead.
+  - type: input
+    id: version
+    attributes:
+      label: Radiata version
+      description: Shown under the Radiata name on Settings > About.
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      description: Edition and build, for example from running `winver`.
+      placeholder: Windows 11 Pro, 24H2
+    validations:
+      required: true
+  - type: input
+    id: controller
+    attributes:
+      label: Controller model
+      placeholder: DualSense Edge, Xbox Series pad, 8BitDo Ultimate 2C, ...
+    validations:
+      required: true
+  - type: dropdown
+    id: connection
+    attributes:
+      label: Connection
+      options:
+        - USB
+        - Bluetooth
+        - Wireless dongle / 2.4 GHz receiver
+        - Other, or not related to a controller
+    validations:
+      required: true
+  - type: input
+    id: isolation
+    attributes:
+      label: Isolation mode (tray tooltip)
+      description: Hover the Radiata tray icon. It reads "Radiata - isolated", or names the reason it isn't.
+      placeholder: Radiata - isolated
+    validations:
+      required: true
+  - type: input
+    id: other-software
+    attributes:
+      label: Other controller software running
+      description: Steam, Steam Input, reWASD, DS4Windows, HidHide configuration client, streaming software, and so on.
+    validations:
+      required: false
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: dropdown
+    id: diagnostic-zip
+    attributes:
+      label: Diagnostic ZIP
+      description: |
+        Settings > Advanced > Troubleshooting > Email Log to Developer... saves a diagnostic ZIP to your Desktop. It can contain device identifiers, account names in file paths, and application or game names, and an attachment on a public issue is public. Open it and review it before you attach it.
+      options:
+        - Reviewed it and attached it below
+        - Not attached
+        - Not attached, will email it instead
+    validations:
+      required: true
+  - type: textarea
+    id: attachments
+    attributes:
+      label: Logs, screenshots and anything else
+      description: Drag files here, or paste text. Only attach a diagnostic ZIP you have reviewed.
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched the existing issues and the Help for this problem.
+          required: true

@@ -1,0 +1,9 @@
+<Project>
+  <!-- Every project builds as the public release unless RadiataPublic is set: a /p:RadiataPublic=... on
+       the command line, or a local Directory.Build.dev.props beside this file. -->
+  <Import Project="$(MSBuildThisFileDirectory)Directory.Build.dev.props"
+          Condition="Exists('$(MSBuildThisFileDirectory)Directory.Build.dev.props')" />
+  <PropertyGroup>
+    <RadiataPublic Condition="'$(RadiataPublic)' == ''">true</RadiataPublic>
+  </PropertyGroup>
+</Project>

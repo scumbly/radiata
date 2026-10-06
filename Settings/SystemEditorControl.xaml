@@ -1,0 +1,401 @@
+<UserControl x:Class="ControllerWheel.SystemEditorControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:loc="clr-namespace:ControllerWheel">
+  <ScrollViewer VerticalScrollBarVisibility="Auto">
+    <Grid Margin="16,12,16,16">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="*" MinWidth="300"/>
+        <ColumnDefinition Width="28"/>
+        <ColumnDefinition Width="*" MinWidth="300"/>
+      </Grid.ColumnDefinitions>
+
+      <!-- ── Left column: Current Controller + Integrations + Game Grid ── -->
+      <StackPanel Grid.Column="0">
+
+        <Border BorderBrush="{StaticResource UiCardBorder}" BorderThickness="1" CornerRadius="6" Padding="10,8" Margin="0,0,0,14">
+          <StackPanel>
+            <!-- Heading left, battery right on the same line. -->
+            <DockPanel Margin="0,0,0,6" LastChildFill="False">
+              <TextBlock DockPanel.Dock="Left">
+                <Run Text="{loc:T Current Controller}" FontWeight="Bold" FontSize="15.5" Foreground="{StaticResource HeadingInk}"/>
+              </TextBlock>
+              <!-- Battery: hidden whenever no level has been reported (no pad, or a backend that never sends
+                   one). Xbox pads expose four coarse levels only, so the label reads in words there and as a
+                   percentage on Sony pads — see RefreshBattery. -->
+              <StackPanel x:Name="BatteryPanel" DockPanel.Dock="Right" Orientation="Horizontal"
+                          VerticalAlignment="Center" Visibility="Collapsed">
+                <Image x:Name="BatteryGlyph" Width="16" Height="16" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                <TextBlock x:Name="BatteryText" VerticalAlignment="Center" FontSize="10.8"/>
+              </StackPanel>
+            </DockPanel>
+            <DockPanel LastChildFill="True">
+              <Button x:Name="RecoverControllerBtn" DockPanel.Dock="Right" Width="26" Height="26"
+                      VerticalAlignment="Center" Padding="0" Click="RecoverControllerBtn_Click"
+                      AutomationProperties.Name="{loc:T Recover controller}"
+                      ToolTip="{loc:T Recover controller (reset input)}">
+                <Image x:Name="RecoverControllerIcon" Width="16" Height="16"/>
+              </Button>
+              <Image x:Name="ControllerGlyph" Width="33" Height="33" VerticalAlignment="Center" Margin="0,0,4,0"/>
+              <!-- Transport reads as an ICON beside the name (Bluetooth / USB port). The icon carries the
+                   word in its AutomationProperties.Name + ToolTip, so the readout stays speakable. -->
+              <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <Image x:Name="ControllerTransportIcon" Width="21" Height="21" VerticalAlignment="Center"
+                       Margin="0,0,6,0" Visibility="Collapsed"/>
+                <TextBlock x:Name="CurrentControllerText" Text="{loc:T No controller detected}" VerticalAlignment="Center"
+                           FontSize="13.8"/>
+              </StackPanel>
+            </DockPanel>
+            <!-- Shown only while a pad reports Bluetooth (SetTransportIcon owns the visibility) — a toggle
+                 for a transport you are not on is clutter. -->
+            <CheckBox x:Name="BluetoothDropBox" Margin="0,8,0,0" Visibility="Collapsed"
+                      Content="{loc:T Show disconnect alerts}"
+                      Checked="Toggle_Changed" Unchecked="Toggle_Changed"
+                      ToolTip="{loc:T 'Notifies you when the Bluetooth link to your controller drops, with the one fix — cycling the PC\'s Bluetooth radio. Shown only while a controller is connected over Bluetooth.'}"/>
+          </StackPanel>
+        </Border>
+
+        <TextBlock Margin="0,0,0,6">
+          <Run Text="{loc:T Integrations}" FontWeight="Bold" FontSize="15.5" Foreground="{StaticResource HeadingInk}"/><Run Text="  "/><InlineUIContainer BaselineAlignment="Center"><Button Style="{DynamicResource HelpChip}" Click="HelpIntegrations_Click" Width="15" Height="15" FontSize="10" ToolTip="{loc:T Integrations help}" AutomationProperties.Name="{loc:T Integrations help}"/></InlineUIContainer>
+        </TextBlock>
+
+        <!-- Label and check flip on whether credentials exist (RefreshDiscordButton). The circled tick is the
+             same mark onboarding step 2 uses for a completed card. -->
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+          <Button x:Name="ConfigureDiscordBtn"
+                  Padding="10,4" Click="ConfigureDiscordBtn_Click"
+                  ToolTip="{loc:T Set Discord voice-slice credentials}">
+            <TextBlock x:Name="ConfigureDiscordText" VerticalAlignment="Center"
+                       Text="{loc:T Configure Discord Integration…}"/>
+          </Button>
+          <Border x:Name="DiscordConfiguredCheck" Width="13" Height="13" CornerRadius="6.5" Margin="7,0,0,0"
+                  UseLayoutRounding="True" SnapsToDevicePixels="True"
+                  VerticalAlignment="Center" Background="#3C405B" Opacity="0.7" Visibility="Collapsed">
+            <TextBlock Text="✓" Foreground="White" FontWeight="Bold" FontSize="8.3"
+                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+          </Border>
+        </StackPanel>
+
+        <!-- OBS connection (SystemConfig ObsPort/ObsPassword) — one shared connection for every OBS slice.
+             Same shape as the Discord row above: label and check flip on RefreshObsButton. -->
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" Margin="0,8,0,0">
+          <Button x:Name="ConfigureObsBtn"
+                  Padding="10,4" Click="ConfigureObsBtn_Click"
+                  ToolTip="{loc:T Set the OBS WebSocket port and password}">
+            <TextBlock x:Name="ConfigureObsText" VerticalAlignment="Center"
+                       Text="{loc:T Configure OBS Integration…}"/>
+          </Button>
+          <Border x:Name="ObsConfiguredCheck" Width="13" Height="13" CornerRadius="6.5" Margin="7,0,0,0"
+                  UseLayoutRounding="True" SnapsToDevicePixels="True"
+                  VerticalAlignment="Center" Background="#3C405B" Opacity="0.7" Visibility="Collapsed">
+            <TextBlock Text="✓" Foreground="White" FontWeight="Bold" FontSize="8.3"
+                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+          </Border>
+          <!-- The section's own chip covers Integrations broadly; this one goes straight to the OBS topic
+               (what obs-websocket is, which OBS builds work). -->
+          <TextBlock VerticalAlignment="Center" Margin="6,0,0,0">
+            <InlineUIContainer BaselineAlignment="Center"><Button Style="{DynamicResource HelpChip}" Click="HelpObs_Click" Width="15" Height="15" FontSize="10" ToolTip="{loc:T OBS integration help}" AutomationProperties.Name="{loc:T OBS integration help}"/></InlineUIContainer>
+          </TextBlock>
+        </StackPanel>
+
+        <!-- Shown only when Playnite is NOT installed; otherwise the "Prefer Playnite covers" toggle appears
+             down in the Game Grid section. -->
+        <StackPanel x:Name="InstallPlaynitePanel" Orientation="Horizontal" Margin="0,8,0,0" Visibility="Collapsed">
+          <Button x:Name="InstallPlayniteBtn" Content="{loc:T Install Playnite…}" VerticalAlignment="Center"
+                  Padding="10,4" Click="InstallPlayniteBtn_Click"
+                  ToolTip="{loc:T Open the Playnite download page}"/>
+          <TextBlock VerticalAlignment="Center" Margin="6,0,0,0">
+            <InlineUIContainer BaselineAlignment="Center"><Button Style="{DynamicResource HelpChip}" Click="HelpPlaynite_Click" Width="15" Height="15" FontSize="10" ToolTip="{loc:T Playnite help}" AutomationProperties.Name="{loc:T Playnite help}"/></InlineUIContainer>
+          </TextBlock>
+        </StackPanel>
+
+        <!-- The heading itself is the link to the key page (steamgriddb.com ▸ Preferences ▸ API). -->
+        <TextBlock FontWeight="SemiBold" Margin="0,12,0,0">
+          <Hyperlink NavigateUri="https://www.steamgriddb.com/profile/preferences/api" RequestNavigate="Link_RequestNavigate"
+                     Foreground="#3D405B" TextDecorations="Underline"
+                     ToolTip="{loc:T Open the SteamGridDB API key page}"><Run Text="{loc:T SteamGridDB API Key}"/></Hyperlink>
+        </TextBlock>
+        <!-- The tick marks an accepted key (loaded, or freshly tested OK) — see RefreshSgdbKeyCheck. -->
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" Margin="0,3,0,0">
+          <!-- Integral width: a half-pixel X offset lands the tick's edges on different pixels and it renders
+               visibly narrower than the Discord one. -->
+          <TextBox x:Name="SgdbKeyBox" Width="255"
+                   AutomationProperties.Name="{loc:T SteamGridDB API key}"
+                   TextChanged="SgdbKeyBox_TextChanged" LostFocus="SgdbKeyBox_LostFocus"/>
+          <Border x:Name="SgdbKeyCheck" Width="13" Height="13" CornerRadius="6.5" Margin="7,0,0,0"
+                  UseLayoutRounding="True" SnapsToDevicePixels="True"
+                  VerticalAlignment="Center" Background="#3C405B" Opacity="0.7" Visibility="Collapsed">
+            <TextBlock Text="✓" Foreground="White" FontWeight="Bold" FontSize="8.3"
+                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+          </Border>
+        </StackPanel>
+        <!-- Key test result: a NEW key is verified with a cheap authenticated call on commit (focus loss) —
+             never per keystroke, never for an unchanged key. Red = rejected/unreachable. -->
+        <TextBlock x:Name="SgdbKeyError" Foreground="#C42B1C" FontSize="11.5" TextWrapping="Wrap"
+                   Margin="0,3,0,0" MaxWidth="255" HorizontalAlignment="Left" Visibility="Collapsed"
+                   Text="{loc:T 'SteamGridDB didn\'t accept this key. Check it and try again.'}"/>
+
+
+        <!-- ── Game Grid: art-cache / hidden-games tools ──────────────────────── -->
+        <TextBlock Margin="0,22,0,6">
+          <Run Text="{loc:T Game Grid}" FontWeight="Bold" FontSize="15.5" Foreground="{StaticResource HeadingInk}"/><Run Text="  "/><InlineUIContainer BaselineAlignment="Center"><Button Style="{DynamicResource HelpChip}" Click="HelpGameGrid_Click" Width="15" Height="15" FontSize="10" ToolTip="{loc:T Game Grid help}" AutomationProperties.Name="{loc:T Game Grid help}"/></InlineUIContainer>
+        </TextBlock>
+
+        <Button x:Name="ClearArtCacheBtn" Content="{loc:T Clear Game Art Cache}" HorizontalAlignment="Left"
+                Padding="10,4" Click="ClearArtCacheBtn_Click"
+                ToolTip="{loc:T Re-download all cover art}"/>
+
+        <Button x:Name="RetryMissedArtBtn" Content="{loc:T Retry Missing Game Art}" HorizontalAlignment="Left"
+                Padding="10,4" Margin="0,8,0,0" Click="RetryMissedArtBtn_Click"
+                ToolTip="{loc:T Re-fetch only the missing covers}"/>
+
+        <Button x:Name="ResetHiddenGamesBtn" Content="{loc:T Reset Hidden Games}" HorizontalAlignment="Left"
+                Padding="10,4" Margin="0,8,0,0" Click="ResetHiddenGamesBtn_Click"
+                ToolTip="{loc:T Unhide all games and storefronts}"/>
+
+        <!-- Shown only when BOTH Playnite and a SteamGridDB key are configured. -->
+        <CheckBox x:Name="PreferPlayniteBox" Content="{loc:T Prefer Playnite covers}" Margin="0,12,0,0"
+                  Visibility="Collapsed" Checked="Toggle_Changed" Unchecked="Toggle_Changed"/>
+
+        <!-- There is deliberately no "Storefronts" list here: storefront visibility is a GAME GRID gesture
+             (hold ☐ on a storefront's "Open <store>" card). SystemConfig.DisabledStorefronts is still the
+             persisted truth, written from the grid (GameBrowserControl.StorefrontHideRequested → App); the
+             "Reset Hidden Games" button above clears it alongside the per-game hides. -->
+
+      </StackPanel>
+
+      <!-- ── Right column: Accessibility + System (incl. Troubleshooting dropdown, Backup/Restore) ── -->
+      <StackPanel Grid.Column="2">
+
+        <!-- ── Language: the app's language from the next start (Loc fixes it per run; SettingsWindow offers the
+             restart, Help re-renders at once). Items come from HelpLocalization.Languages, gated by Loc.Offered
+             in Release. Label, then a dropdown no wider than its contents, then the flag. The flag is a DRAWN
+             swatch (HelpEditorControl.BuildFlagGlyph), never a flag emoji — Windows 10's Segoe UI Emoji has no
+             flag glyphs. The stroke lives on an OUTER border: a stroke on the swatch host itself would inset the
+             22×14 flag and the clip would crop it. ── -->
+        <StackPanel Orientation="Horizontal" Margin="0,0,0,18" VerticalAlignment="Center">
+          <TextBlock Text="{loc:T Language}" FontWeight="Bold" FontSize="15.5" Foreground="{StaticResource HeadingInk}" VerticalAlignment="Center" Margin="0,0,10,0"/>
+          <ComboBox x:Name="LanguageBox" MinWidth="150" HorizontalAlignment="Left"
+                    SelectionChanged="LanguageBox_SelectionChanged"/>
+          <Border Width="24" Height="16" CornerRadius="3" BorderThickness="1" BorderBrush="#80000000"
+                  VerticalAlignment="Center" Margin="8,0,0,0" FlowDirection="LeftToRight">
+            <Border x:Name="LanguageFlagHost" Width="22" Height="14" CornerRadius="2" ClipToBounds="True"/>
+          </Border>
+        </StackPanel>
+
+        <!-- ── Accessibility. ⚠ This tab OWNS TriggerActivation / SwapFnButtons / WheelIgnoresOppositeStick /
+             AlwaysShowHub / ReduceMotion / Narration — Customize writes none of them. The heading carries
+             the MDI "wheelchair-accessibility" glyph, set in code because PackIconHelper is a method, not
+             a markup extension. ─────────────────────────────────────────────────────────────────────── -->
+        <TextBlock Margin="0,0,0,6">
+          <InlineUIContainer BaselineAlignment="Center"><Image x:Name="AccessibilityHeadingGlyph" Width="16" Height="16"/></InlineUIContainer><Run Text="  "/><Run Text="{loc:T Accessibility}" FontWeight="Bold" FontSize="15.5" Foreground="{StaticResource HeadingInk}"/><Run Text="  "/><InlineUIContainer BaselineAlignment="Center"><Button Style="{DynamicResource HelpChip}" Click="HelpAccessibility_Click" Width="15" Height="15" FontSize="10" ToolTip="{loc:T Accessibility help}" AutomationProperties.Name="{loc:T Accessibility help}"/></InlineUIContainer>
+        </TextBlock>
+
+        <!-- Leads the section, parented by nothing: aiming uses EITHER stick by default and this is the
+             opt-out. No soft link, no indent — don't adopt it into either tree below. -->
+        <CheckBox x:Name="IgnoreOppositeStickBox" Content="{loc:T Wheel ignores opposite stick}" Margin="4,10,0,0"
+                  Checked="IgnoreOppositeStick_Changed" Unchecked="IgnoreOppositeStick_Changed"
+                  ToolTip="{loc:T 'Aim with the wheel\'s own stick only'}"/>
+
+        <CheckBox x:Name="ToggleActivationBox" Content="{loc:T Wheels toggle on/off}" Margin="4,10,0,0"
+                  Checked="ToggleActivation_Changed" Unchecked="ToggleActivation_Changed"
+                  ToolTip="{loc:T Wheels stay open until dismissed}"/>
+
+        <!-- ── The soft-link trees ────────────────────────────────────────────────────────────────────
+             TWO parents here own an indented CHILD they auto-tick: "Wheels toggle on/off" → Swap
+             left/right, and "Reduce motion" → Always show hub. Each child stays independently
+             checkable, and setting one by hand ends its auto-linking for the session (see the
+             code-behind). The indent + hairline IS the statement that the link exists, so an unlinked
+             box must never be drawn inside one — "Wheel ignores opposite stick" leads the section,
+             outside both trees, precisely because it has no parent.
+
+             The connector is drawn, not glyphed: a vertical stem descending from under the parent with a
+             horizontal arm reaching the child, the stem stopping at the arm rather than running on.
+
+             Layout-driven, not coordinates. Column 0 is a gutter; the gutter cell holds Borders whose only
+             job is one edge each, so they stretch with the row:
+               • a Border with BorderThickness="1,0,0,0" + HorizontalAlignment="Left" IS the vertical stem;
+               • a Border with a single horizontal edge IS the arm.
+             The LAST row nests a 2-row grid and puts the stem in the top half only, with the arm on that
+             half's bottom edge — so the stem ends exactly where the arm leaves it. Nothing here is a pixel
+             measurement, so it survives DPI and font scaling. A tree with only ONE child is all-last-row,
+             which is why both of these are a single half-stem cell; giving a tree a second child means
+             restoring the full-height stem + centred arm above it.
+             Each CheckBox takes a SYMMETRIC vertical margin, which is what makes "the cell's centre" and
+             "the checkbox's centre" the same line — the arms depend on it.
+
+             a11y: Borders carry no text, so unlike the TextBlock glyph they contribute no automation name
+             and need no suppression. The old └ would have been announced before every row. -->
+        <Grid Margin="11,3,0,0">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="14"/>
+            <ColumnDefinition Width="*"/>
+          </Grid.ColumnDefinitions>
+
+          <!-- The only child: stem occupies the top half only and ends on the arm. -->
+          <Grid Grid.Column="0">
+            <Grid.RowDefinitions>
+              <RowDefinition Height="*"/><RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+            <Border Grid.Row="0" BorderBrush="{StaticResource UiCardBorder}" BorderThickness="1,0,0,0"
+                    HorizontalAlignment="Left"/>
+            <Border Grid.Row="0" BorderBrush="{StaticResource UiCardBorder}" BorderThickness="0,0,0,1"
+                    VerticalAlignment="Bottom"/>
+          </Grid>
+          <CheckBox x:Name="SwapFnBox" Grid.Column="1" Content="{loc:T Swap left/right}"
+                    Margin="0,5,0,5" VerticalAlignment="Center"
+                    Checked="SwapFn_Changed" Unchecked="SwapFn_Changed"
+                    ToolTip="{loc:T Swap which wheel each trigger opens}"/>
+        </Grid>
+
+        <CheckBox x:Name="ReduceMotionBox" Content="{loc:T Reduce motion}" Margin="4,10,0,0"
+                  Checked="ReduceMotion_Changed" Unchecked="ReduceMotion_Changed"
+                  ToolTip="{loc:T Calm animation and motion effects}"/>
+
+        <!-- Second tree: Always show hub is Reduce motion's child. A calmer wheel wants the hub's readout
+             standing still rather than appearing and vanishing, but it stays independently checkable. -->
+        <Grid Margin="11,3,0,0">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="14"/>
+            <ColumnDefinition Width="*"/>
+          </Grid.ColumnDefinitions>
+
+          <Grid Grid.Column="0">
+            <Grid.RowDefinitions>
+              <RowDefinition Height="*"/><RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+            <Border Grid.Row="0" BorderBrush="{StaticResource UiCardBorder}" BorderThickness="1,0,0,0"
+                    HorizontalAlignment="Left"/>
+            <Border Grid.Row="0" BorderBrush="{StaticResource UiCardBorder}" BorderThickness="0,0,0,1"
+                    VerticalAlignment="Bottom"/>
+          </Grid>
+          <CheckBox x:Name="AlwaysShowHubBox" Grid.Column="1" Content="{loc:T Always show hub}"
+                    Margin="0,5,0,5" VerticalAlignment="Center"
+                    Checked="AlwaysShowHub_Changed" Unchecked="AlwaysShowHub_Changed"
+                    ToolTip="{loc:T Always draw the centre hub}"/>
+        </Grid>
+
+        <CheckBox x:Name="NarrationBox" Content="{loc:T Narration…}" Margin="4,10,0,0"
+                  Checked="Narration_Changed" Unchecked="Narration_Changed"
+                  ToolTip="{loc:T 'Speak selections, holds, and results aloud'}"/>
+
+        <!-- ── Narrator tip: visible only while Narration is ticked ────────────────────────────────────
+             Radiata's voice reaches the overlay and the Game Grid ONLY; the never-focused overlay is why
+             it exists at all (Narrator can't voice a window that never takes focus), and the same reason means Settings, the
+             onboarding wizard, and every other OS-owned surface are Narrator's job. The button is a
+             ONE-WAY offer — it starts Narrator and nothing here ever stops it (see NarratorLauncher).
+             a11y: the same text is spoken through Radiata's own voice on tick — see Narration_Changed.
+
+             Width is BOUNDED, not stretched: this column is Width="*" MinWidth="300" and the ScrollViewer
+             above scrolls vertically only, so at a narrow window the column reaches its MinWidth and
+             anything filling it is CLIPPED rather than wrapped. 292 + the 4px side margins = the 300
+             MinWidth exactly, so the card fits at the narrowest layout the window can reach. -->
+        <Border x:Name="NarratorTip" Visibility="Collapsed"
+                HorizontalAlignment="Left" MaxWidth="292"
+                Background="{StaticResource UiNoticeBg}" BorderBrush="{StaticResource UiCardBorder}"
+                BorderThickness="1" CornerRadius="6" Padding="10,8" Margin="4,8,4,0">
+          <StackPanel>
+            <DockPanel LastChildFill="True">
+              <Button x:Name="DismissNarratorTipBtn" DockPanel.Dock="Right"
+                      Style="{DynamicResource DismissChip}"
+                      VerticalAlignment="Top" Margin="6,0,0,0" Click="DismissNarratorTipBtn_Click"
+                      AutomationProperties.Name="{loc:T Dismiss Narrator tip}"
+                      ToolTip="{loc:T Dismiss this tip}"/>
+              <TextBlock x:Name="NarratorTipText" TextWrapping="Wrap" FontSize="11.5"
+                         Foreground="{StaticResource UiMutedInk}"/>
+            </DockPanel>
+            <Button x:Name="LaunchNarratorBtn" Content="{loc:T Turn On Windows Narrator}"
+                    HorizontalAlignment="Left" Padding="10,4" Margin="0,8,0,0"
+                    Click="LaunchNarratorBtn_Click"
+                    ToolTip="{loc:T 'Start Windows\' system-wide Narrator'}"/>
+          </StackPanel>
+        </Border>
+
+        <TextBlock Margin="0,22,0,6">
+          <Run Text="{loc:T System}" FontWeight="Bold" FontSize="15.5" Foreground="{StaticResource HeadingInk}"/><Run Text="  "/><InlineUIContainer BaselineAlignment="Center"><Button Style="{DynamicResource HelpChip}" Click="HelpSystem_Click" Width="15" Height="15" FontSize="10" ToolTip="{loc:T System tools help}" AutomationProperties.Name="{loc:T System tools help}"/></InlineUIContainer>
+        </TextBlock>
+
+        <!-- ── Updates + crash reporting. This tab OWNS UpdateCheckEnabled / CrashPromptEnabled;
+             UpdateSkippedVersion is written only by the update prompt window, never by a tab.
+             While an update is known, CheckUpdatesBtn reads "Install Update" — the PERSISTENT surface
+             for a found update (the balloon is transient) — and opens the same UpdateWindow the balloon
+             click does; its Content/ToolTip are set in code. What the check
+             sends (app version only) is documented in the Help topic, not inline here. ── -->
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" Margin="0,0,0,0">
+          <Button x:Name="CheckUpdatesBtn" Content="{loc:T Check for Updates}"
+                  Padding="10,4" Click="CheckUpdatesBtn_Click"
+                  ToolTip="{loc:T Ask getradiata.app/update right now}"/>
+          <CheckBox x:Name="UpdateCheckBox" Content="{loc:T Automatic}" Margin="10,0,0,0" VerticalAlignment="Center"
+                    Checked="Toggle_Changed" Unchecked="Toggle_Changed"
+                    AutomationProperties.Name="{loc:T Check for updates automatically}"
+                    ToolTip="{loc:T Check for updates automatically}"/>
+        </StackPanel>
+        <TextBlock x:Name="UpdateResultText" FontSize="11.5" Foreground="{StaticResource UiMutedInk}"
+                   TextWrapping="Wrap" MaxWidth="292" HorizontalAlignment="Left"
+                   Margin="0,6,0,0" Visibility="Collapsed"/>
+
+        <CheckBox x:Name="StartWithWindowsBox" Content="{loc:T Start with Windows}" Margin="4,14,0,0"
+                  Checked="StartWithWindowsBox_CheckedChanged" Unchecked="StartWithWindowsBox_CheckedChanged"
+                  ToolTip="{loc:T Start Radiata when you sign in}"/>
+
+        <!-- Always-show-hub and Reduce-Motion live in the Accessibility section above — this tab owns
+             both (see that section's ownership note). The per-checkbox helper captions live in the
+             "system-actions" Help topic, not inline. -->
+
+        <!-- Practice-mode checkbox is hidden; its plumbing (the Load() seed and the ApplyTo write of
+             PracticeWhileSettingsOpen) is deliberately intact — remove the Visibility attribute to bring the
+             checkbox back. -->
+        <CheckBox x:Name="PracticeSettingsBox" Content="{loc:T Practice mode while Settings is open}" Margin="0,10,0,0"
+                  Visibility="Collapsed"
+                  Checked="Toggle_Changed" Unchecked="Toggle_Changed"/>
+
+        <!-- ── Troubleshooting dropdown. Picking an item fires the matching *Requested event, then the combo
+             snaps back to the "Troubleshooting…" placeholder — see TroubleshootingBox_SelectionChanged for
+             the re-entrancy guard. Both Separators are IsEnabled="False" so they can't be picked; even if
+             one were, the handler casts SelectedItem `as ComboBoxItem` and a Separator isn't one → null
+             → tag "" → early return. ────────────────── -->
+        <ComboBox x:Name="TroubleshootingBox" Margin="0,14,0,0"
+                  AutomationProperties.Name="{loc:T Troubleshooting actions}"
+                  SelectionChanged="TroubleshootingBox_SelectionChanged">
+          <ComboBoxItem Tag="" Content="{loc:T Troubleshooting…}" IsSelected="True"/>
+          <ComboBoxItem Tag="oobe"           Content="{loc:T Run First-Run Setup…}"/>
+          <ComboBoxItem Tag="drivers"        Content="{loc:T Install/Repair Drivers…}"/>
+          <ComboBoxItem Tag="hid"            Content="{loc:T HID Diagnostics…}"/>
+          <ComboBoxItem Tag="controllersetup" Content="{loc:T Controller Setup…}"/>
+          <ComboBoxItem Tag="emaillog"       Content="{loc:T Email Log to Developer…}"/>
+          <Separator IsEnabled="False"/>
+          <ComboBoxItem Tag="backup"         Content="{loc:T Back Up Settings…}"/>
+          <ComboBoxItem Tag="restore"        Content="{loc:T Restore Settings…}"/>
+          <Separator IsEnabled="False"/>
+          <ComboBoxItem Tag="reset"          Content="{loc:T Reset All Settings…}"/>
+          <ComboBoxItem Tag="wipe"           Content="{loc:T Wipe App Data and Reset…}"/>
+          <ComboBoxItem Tag="uninstall"      Content="{loc:T Uninstall Radiata…}"/>
+        </ComboBox>
+
+        <!-- Crash-report checkbox is hidden — prompting is assumed always-on. The plumbing (Load seed +
+             ApplyTo write of CrashPromptEnabled) stays intact; remove the Visibility attribute to bring
+             it back. The crash dialog's Don't send with "Remember this choice" ticked can still set CrashPromptEnabled false. -->
+        <CheckBox x:Name="CrashPromptBox" Content="{loc:T Offer to send a crash report after a crash}"
+                  Visibility="Collapsed"
+                  Margin="0,14,0,0" Checked="Toggle_Changed" Unchecked="Toggle_Changed"
+                  ToolTip="{loc:T Always shown to you in full first — nothing sends without you}"/>
+        <CheckBox x:Name="CrashAutoSendBox" Content="{loc:T Send crash reports automatically}"
+                  Visibility="Collapsed"
+                  Margin="0,8,0,0" Checked="Toggle_Changed" Unchecked="Toggle_Changed"
+                  ToolTip="{loc:T Skips the window and sends the same report it would have shown}"/>
+
+        <!-- ── Quit Radiata — the flower mark is set in code via PackIconHelper, like the other button
+             icons. ──────────────────────────────────────────────────────────── -->
+        <Button x:Name="QuitRadiataBtn" HorizontalAlignment="Left"
+                Padding="10,4" Margin="0,16,0,0" Click="QuitRadiataBtn_Click"
+                ToolTip="{loc:T Exit and un-cloak the controller}">
+          <StackPanel Orientation="Horizontal">
+            <Image x:Name="QuitRadiataIcon" Width="14" Height="14" VerticalAlignment="Center" Margin="0,0,6,0"/>
+            <TextBlock Text="{loc:T Quit Radiata}" VerticalAlignment="Center"/>
+          </StackPanel>
+        </Button>
+
+      </StackPanel>
+    </Grid>
+  </ScrollViewer>
+</UserControl>

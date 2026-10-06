@@ -1,0 +1,20 @@
+<Window x:Class="ControllerWheel.DefaultPickerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:loc="clr-namespace:ControllerWheel"
+        xmlns:local="clr-namespace:ControllerWheel"
+        Title="{loc:T Default}" Width="430" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize" ShowInTaskbar="False">
+  <StackPanel Margin="16">
+    <TextBlock x:Name="NameText" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,12"/>
+
+    <local:IconColorPickerControl x:Name="Picker"/>
+
+    <DockPanel Margin="0,16,0,0">
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+        <Button Content="{loc:T Cancel}" Width="74" IsCancel="True" Margin="0,0,8,0"/>
+        <Button Content="{loc:T OK}"     Width="74" IsDefault="True" Click="Ok_Click"/>
+      </StackPanel>
+    </DockPanel>
+  </StackPanel>
+</Window>

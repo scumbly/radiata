@@ -1,0 +1,301 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>Radiata</AssemblyName>
+    <RootNamespace>ControllerWheel</RootNamespace>
+    <Product>Radiata</Product>
+    <ApplicationIcon>Assets\radiata.ico</ApplicationIcon>
+    <!-- Don't append +commit hash to InformationalVersion (we display it raw). -->
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+  </PropertyGroup>
+
+  <!-- Version = <Major>.<Minor>.<build>.<YYMMDD>, pre-1.0 while working toward a public launch.
+       <Major>.<Minor> (ReleaseMajor/ReleaseMinor below) are hand-bumped at milestones — bump to
+       1.0 at the public launch. App.OobeCurrentVersion does NOT move with them: it changes only on an
+       explicit decision, because a bump re-runs first-run setup for every existing user. <build> iterates once per COMMIT: a git pre-commit hook
+       (.git/hooks/pre-commit) increments build.minor and stages it, so every commit bumps it. The
+       build only READS it here (no increment). <YYMMDD> is the build date and exceeds the 65535
+       limit on AssemblyVersion/FileVersion, so the full 4-part string lives in InformationalVersion;
+       Assembly/FileVersion stay numerically valid (<Major>.<Minor>.<build>.0). -->
+  <PropertyGroup>
+    <ReleaseMajor>0</ReleaseMajor>
+    <ReleaseMinor>17</ReleaseMinor>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(RadiataPublic)' == 'true'">
+    <!-- RadiataPublic defaults to true (Directory.Build.props). The public flavour compiles the arcade's dev switches out (Core/Arcade/ArcadeDebug.cs). -->
+    <DefineConstants>$(DefineConstants);PUBLIC_RELEASE</DefineConstants>
+  </PropertyGroup>
+  <Target Name="SetBuildVersion" Condition="'$(MSBuildProjectName)' == 'ControllerWheel'" BeforeTargets="GetAssemblyVersion;GenerateAssemblyInfo;CoreCompile">
+    <PropertyGroup>
+      <MinorFile>$(MSBuildProjectDirectory)\build.minor</MinorFile>
+      <BuildDate>$([System.DateTime]::Now.ToString('yyMMdd'))</BuildDate>
+    </PropertyGroup>
+    <ReadLinesFromFile File="$(MinorFile)" Condition="Exists('$(MinorFile)')">
+      <Output TaskParameter="Lines" ItemName="MinorLines" />
+    </ReadLinesFromFile>
+    <PropertyGroup>
+      <!-- PinnedBuildMinor (passed by tools\build-installer.ps1 as /p:) wins over the file read: the
+           pre-commit hook bumps build.minor on every commit, and a commit landing between the script's
+           read and this one ships a setup exe whose payload reports a different version than its
+           filename, ARP entry and latest.json. One read at the top of the script, pinned through. -->
+      <Minor>@(MinorLines)</Minor>
+      <Minor Condition="'$(PinnedBuildMinor)' != ''">$(PinnedBuildMinor)</Minor>
+      <Minor Condition="'$(Minor)' == ''">0</Minor>
+      <AssemblyVersion>$(ReleaseMajor).$(ReleaseMinor).$(Minor).0</AssemblyVersion>
+      <FileVersion>$(ReleaseMajor).$(ReleaseMinor).$(Minor).0</FileVersion>
+      <InformationalVersion>$(ReleaseMajor).$(ReleaseMinor).$(Minor).$(BuildDate)</InformationalVersion>
+    </PropertyGroup>
+    <Message Importance="high" Text="Radiata version: $(ReleaseMajor).$(ReleaseMinor).$(Minor).$(BuildDate)" />
+  </Target>
+
+  <!-- TESTER PUBLISH: PUBLISH-ONLY, never affects a plain `dotnet build`. The block is gated on a
+       RuntimeIdentifier being supplied, which only happens on a `dotnet publish` with `-r win-x64`
+       (self-contained); a normal `dotnet build` (no RID) leaves it inert, so ordinary multi-file Debug
+       output for fast local iteration. Result: ONE compressed, self-contained single-file Radiata.exe
+       instead of ~490 loose files (runs on a PC with no .NET installed; native libs like WPF, SQLite,
+       coreclr self-extract on first run). TRIMMING IS DELIBERATELY OFF: WPF is not trim-safe. The
+       drivers\ installers stay LOOSE beside the exe (the Content copy below is not bundled); the app
+       finds them via AppContext.BaseDirectory (the exe's folder in single-file mode), so paths still
+       resolve. See docs/BUILD-RELEASE.md for the publish/package steps. -->
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' != ''">
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <!-- Explicitly OFF — WPF reflection/XAML is not trim-safe; trimming would break the app. -->
+    <PublishTrimmed>false</PublishTrimmed>
+  </PropertyGroup>
+
+  <!-- Core is its own project (referenced below); don't also compile its files here. -->
+  <!-- tools\ likewise holds standalone helper projects (e.g. SettingsSmokeProbe) — the SDK's default glob
+       walks subdirectories, so without this their Program.cs would be compiled INTO Radiata and collide
+       with App's entry point. -->
+  <ItemGroup>
+    <Compile Remove="Core\**\*.cs" />
+    <Compile Remove="tools\**\*.cs" />
+    <Page Remove="tools\**\*.xaml" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="Core\ControllerWheel.Core.csproj" />
+    <!-- The jailed Arcade script helper. ReferenceOutputAssembly=false: Radiata NEVER links against
+         it (and never references Jint) — building the app just builds the helper too, and the copy
+         targets below put Radiata.ArcadeHost.exe + its deps beside Radiata.exe, where
+         ScriptSessionCoordinator finds it at runtime. -->
+    <ProjectReference Include="ArcadeHost\ArcadeHost.csproj"
+                      ReferenceOutputAssembly="false" Private="false" SkipGetTargetFrameworkProperties="true" />
+  </ItemGroup>
+
+  <!-- ArcadeHost must also not be swept into Radiata's own compile glob. -->
+  <ItemGroup>
+    <Compile Remove="ArcadeHost\**\*.cs" />
+  </ItemGroup>
+
+  <!-- Copy the helper's dependency closure beside Radiata.exe after every build (and into the
+       publish output — single-file publish does not bundle a second exe, it rides loose like the
+       driver installers). Keep this list in step with ScriptSessionCoordinator.HelperFiles. -->
+  <Target Name="CopyArcadeHost" AfterTargets="Build" Condition="'$(MSBuildProjectName)' == 'ControllerWheel'">
+    <PropertyGroup>
+      <!-- A -r publish flows the RID to the helper, which then builds into net8.0\<rid>\. -->
+      <_ArcadeHostBin>$(MSBuildProjectDirectory)\ArcadeHost\bin\$(Configuration)\net8.0\</_ArcadeHostBin>
+      <_ArcadeHostBin Condition="'$(RuntimeIdentifier)' != ''">$(_ArcadeHostBin)$(RuntimeIdentifier)\</_ArcadeHostBin>
+    </PropertyGroup>
+    <ItemGroup>
+      <_ArcadeHostFiles Include="$(_ArcadeHostBin)Radiata.ArcadeHost.exe;
+                                 $(_ArcadeHostBin)Radiata.ArcadeHost.dll;
+                                 $(_ArcadeHostBin)Radiata.ArcadeHost.deps.json;
+                                 $(_ArcadeHostBin)Radiata.ArcadeHost.runtimeconfig.json;
+                                 $(_ArcadeHostBin)Jint.dll;
+                                 $(_ArcadeHostBin)Acornima.dll" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_ArcadeHostFiles)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
+  <Target Name="CopyArcadeHostToPublish" AfterTargets="Publish" Condition="'$(MSBuildProjectName)' == 'ControllerWheel'">
+    <PropertyGroup>
+      <_ArcadeHostPublishDir>$([System.IO.Path]::GetFullPath('$(PublishDir)'))\ArcadeHost\</_ArcadeHostPublishDir>
+    </PropertyGroup>
+    <!-- Publish the helper itself: a six-file build copy is not a self-contained runtime closure. -->
+    <MSBuild Projects="ArcadeHost\ArcadeHost.csproj" Targets="Publish"
+             Properties="PublishDir=$(_ArcadeHostPublishDir);PublishSingleFile=false;PublishTrimmed=false;IncludeNativeLibrariesForSelfExtract=false;UseAppHost=true" />
+    <Error Condition="!Exists('$(_ArcadeHostPublishDir)Radiata.ArcadeHost.exe')" Text="ArcadeHost publish did not produce its executable." />
+    <Error Condition="'$(SelfContained)' == 'true' and (!Exists('$(_ArcadeHostPublishDir)hostfxr.dll') or !Exists('$(_ArcadeHostPublishDir)coreclr.dll'))"
+           Text="Self-contained ArcadeHost publish is missing its runtime." />
+    <ItemGroup>
+      <_PublishedHelperFiles Include="$(_ArcadeHostPublishDir)**\*" />
+    </ItemGroup>
+    <GetFileHash Files="@(_PublishedHelperFiles)" Algorithm="SHA256">
+      <Output TaskParameter="Items" ItemName="_HashedHelperFiles" />
+    </GetFileHash>
+    <WriteLinesToFile File="$(PublishDir)Radiata.helper-files.txt"
+                      Lines="@(_HashedHelperFiles->'%(FileHash)|ArcadeHost\%(RecursiveDir)%(Filename)%(Extension)')"
+                      Overwrite="true" Encoding="UTF-8" />
+    <Message Importance="high" Text="Published ArcadeHost with its runtime dependencies and a hashed uninstall manifest." />
+  </Target>
+
+  <!-- App/taskbar icon: ApplicationIcon embeds the multi-size radiata.ico, generated by
+       tools\make-radiata-ico.ps1 from Assets\flower-mark-color-unique.png. Every in-app rendering of the
+       mark (tray icon, About animation, toast, Quit button) is code-drawn from the path data embedded in
+       FlowerIcon.cs — no raster flower asset is compiled into the assembly. -->
+
+  <ItemGroup>
+    <!-- Brand-blue controller line-art labelling the wheel gestures; a faint watermark behind the
+         trigger-practice onboarding step. -->
+    <Resource Include="Assets\controls.png" />
+    <!-- Kabloom's "not sure" marker: the question mark inside the flag ring. Cropped to its ink and
+         recoloured at load — see KabloomRenderer.QuestionArt. -->
+    <Resource Include="Assets\Kabloom-Question.png" />
+    <!-- Per-chord controller illustrations (onboarding practice step swaps to the selected chord's art). -->
+    <Resource Include="Controller\*.png" />
+    <!-- Onboarding Assets step (4): a before/after row of tiles showing what game art buys you. -->
+    <!-- …the Playnite-sourced variant shown while "Playnite only" is picked, and the struck-out variant
+         shown while "No game art" is picked. -->
+    <Resource Include="Assets\tile-logos.png" />
+    <Resource Include="Assets\tile-logos-playnite.png" />
+    <Resource Include="Assets\tile-logo-null.png" />
+    <!-- Arcade hub previews (author-supplied): one still per game, shown in the wheel hub while that game's
+         slice is armed. Named <gameId>-preview.png — RadialMenuControl.ArcadePreviewBitmap builds the path
+         from ArcadeCatalog's id, so a new game needs a file, not a code change. -->
+    <Resource Include="Assets\arcade\*-preview.png" />
+    <!-- The Arcade Launcher slice glyph (PackIconHelper.JoystickName); its alpha is the tintable shape. -->
+    <Resource Include="Assets\arcade\arcade-glyph.png" />
+    <!-- Replaceable in-game art (ArcadeSprites). One PNG per named slot; the slot list and what each one is
+         fitted to live in ArcadeSprites.Slot and Assets\arcade\sprites\README.md. Every slot is OPTIONAL —
+         an absent file leaves that game's vector drawing standing, which is why this is a glob and not a
+         list. %APPDATA%\Radiata\arcade-sprites\<slot>.png overrides whatever ships here.
+         ⚠ FINISHED art only, and the folder name is load-bearing: it must match ArcadeSprites.PackedDir,
+         because that string becomes the pack:// URI the loader asks for. The sibling
+         templates-unfinished\ holds the artist's GUIDES for slots still to be drawn and must never ship —
+         this glob does not recurse, which is the whole of what keeps them out. -->
+    <Resource Include="Assets\arcade\sprites\sprites-finished\*.png" />
+    <!-- The Arcade picker's wireframe cabinet (ArcadeArt.Cabinet). ArcadePickerTuning's screen/badge
+         fractions and ArcadePickerRenderer's silhouette outline are measured against this file's 386×720
+         proportions. -->
+    <Resource Include="Assets\arcade-carousel-machine_720.png" />
+    <Resource Include="Assets\wheel-background-alpha.png" />
+    <!-- Salvage's metal surface photo (author-supplied). Feeds BOTH
+         the wheel and the Customize/onboarding preview tile — see RadialMenuControl.BuildSalvageTexture. -->
+    <Resource Include="Assets\salvage-background.jpg" />
+    <!-- Salvage's rivet (author-supplied): four per slice, inset from the wedge's corners. -->
+    <Resource Include="Assets\salvage-rivet.png" />
+    <!-- Salvage's PREVIEW-TILE surface (author-supplied): a purpose-shot crop for the small
+         Settings ▸ Customize / onboarding swatches, where the wheel's own photo read as a smear. Used by
+         CustomizeEditorControl.SalvageTileBitmap only — the wheel keeps salvage-background.jpg. -->
+    <Resource Include="Assets\salvage-button-background.jpg" />
+    <!-- Salvage's hub-header banner (author-supplied): a ragged red cloth strip with frayed ends and
+         transparent margins, stretched behind hub-toast header text — see DrawSalvageBanner. -->
+    <Resource Include="Assets\salvage-banner.png" />
+    <!-- Terra's ground texture (author-supplied): a SEAMLESS cartoon dirt/cracks tile, layered translucently
+         over the terracotta backdrop blob. Seamless is why it tiles rather than being scaled to fit. -->
+    <Resource Include="Assets\terra-ground.png" />
+    <!-- Onboarding Discord-step walkthrough screenshot (author-supplied; loaded by EnterDiscord).
+         Conditional so the build works before the asset lands — drop the PNG in and rebuild. -->
+    <Resource Include="Assets\discord-setup.png" Condition="Exists('Assets\discord-setup.png')" />
+    <!-- Onboarding step-2 stick-hint toast art (author-supplied): left/right analog stick glyphs
+         shown in the floating toast while a wheel is up during that step only. -->
+    <!-- Discord Integration setup walkthrough screenshot, shown in DiscordSetupWindow. -->
+    <Resource Include="Assets\discord-preview.png" />
+    <!-- OBS Integration setup walkthrough screenshot, shown in ObsSetupWindow. -->
+    <Resource Include="Assets\obs-setup.png" />
+    <Resource Include="Assets\analog-left.png" />
+    <Resource Include="Assets\analog-right.png" />
+    <!-- Settings ▸ About portrait (author-supplied): circular photo beside the tip-jar paragraph. -->
+    <Resource Include="Assets\jesse-and-magpie.png" />
+  </ItemGroup>
+
+  <!-- UI sound effects (slice armed/fired, wheels on/off), played by Sfx; gated by the Advanced
+       "sound effects" toggle. Compiled in as WPF resources like the images above. -->
+  <ItemGroup>
+    <Resource Include="Assets\sfx\*.wav" />
+    <!-- Kawaii's melodic slice-armed sequencer (KawaiiXylophone): a C-major octave of xylophone
+         strikes, C6…C7, pitch-shifted at play time to cover accidentals. -->
+    <Resource Include="Assets\sfx\xylophone\*.wav" />
+    <!-- The Arcade's own set (ArcadeSfx). Licensed packs, so the folder is NOT mirrored to the public repo
+         (THIRD-PARTY-LICENSES.md §4c); an empty glob compiles and the arcade is simply silent without it. -->
+    <Resource Include="Assets\sfx\arcade\*.wav" />
+    <!-- The Arcade's music beds (ArcadeMusic), streamed rather than decoded up front. CC BY-SA 4.0
+         (THIRD-PARTY-LICENSES.md §4d); an empty glob compiles and the games are simply silent. -->
+    <Resource Include="Assets\music\*.m4a" />
+    <!-- Share Tech (OFL 1.1) — Reactor's hub typeface; see THIRD-PARTY-LICENSES.md §7. -->
+    <Resource Include="Assets\fonts\*.ttf" />
+  </ItemGroup>
+
+  <!-- Third-party attributions and the GPL text surfaced by the About tab's licence links. Embedded (not
+       loose files) so they're inside the single-file exe and always available to the shipped build. -->
+  <ItemGroup>
+    <EmbeddedResource Include="LICENSE">
+      <LogicalName>LICENSE</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="THIRD-PARTY-LICENSES.md">
+      <LogicalName>THIRD-PARTY-LICENSES.md</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <!-- Bundled Nefarius driver installers (all signed) shipped for first-run/OOBE setup: ViGEmBus (virtual
+       pad), HidHide (cloak the physical pad), and Legacinator (removes the legacy HidGuardian, which can't
+       coexist with HidHide). Copied to bin\…\drivers\ next to Radiata.exe; launched elevated by onboarding. -->
+  <ItemGroup>
+    <Content Include="drivers\*.exe">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>drivers\%(Filename)%(Extension)</Link>
+    </Content>
+    <!-- The app-folder uninstaller: a double-clickable launcher that runs Radiata's uninstall mode. -->
+    <Content Include="Uninstall Radiata.cmd">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <!-- The drivers\ Content copy above populates the BUILD output (bin\…\drivers), but a single-file
+       `dotnet publish` does NOT reliably copy Content into the -o output. So copy the installers LOOSE
+       beside the single-file exe explicitly after publish — the app launches them via AppContext.BaseDirectory
+       (== the exe's folder), so this keeps that path resolving in the shipped ZIP. Publish-only. -->
+  <Target Name="CopyDriversToPublish" AfterTargets="Publish">
+    <ItemGroup>
+      <_DriverInstallers Include="$(MSBuildProjectDirectory)\drivers\*.exe" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_DriverInstallers)" DestinationFolder="$(PublishDir)drivers" SkipUnchangedFiles="true" />
+    <!-- Ship the app-folder uninstaller loose beside the exe too (same single-file publish gap as drivers). -->
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\Uninstall Radiata.cmd" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true"
+          Condition="Exists('$(MSBuildProjectDirectory)\Uninstall Radiata.cmd')" />
+    <Message Importance="high" Text="Copied driver installers + uninstaller to $(PublishDir)" />
+  </Target>
+
+  <ItemGroup>
+    <PackageReference Include="HidSharp" Version="2.6.4" />
+    <!-- LiteDB 4.1.4 reads Playnite's library DB (v4 format; LiteDB 5.x can't read it).
+         NU1904 (GHSA-3x49-g6rc-c284) is a deserialize-untrusted-data RCE — not reachable here:
+         the DB is the user's own local Playnite library (not attacker-supplied) and we read raw
+         BsonDocuments (field access), never BsonMapper type-deserialization. Suppression scoped. -->
+    <PackageReference Include="LiteDB" Version="4.1.4" NoWarn="NU1904" />
+    <PackageReference Include="MahApps.Metro.IconPacks.Material" Version="5.0.0" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.18" />
+    <!-- Pull a native SQLite past GHSA-2m69-gcr7-jv3q (fixed in SQLite 3.50.2; every SQLitePCLRaw ≤ 2.1.11
+         is affected): Microsoft.Data.Sqlite 8.0.x alone pins SQLitePCLRaw 2.1.6, so the bundle is
+         referenced explicitly at the first patched 2.x release. -->
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.12" />
+    <PackageReference Include="NAudio" Version="2.3.0" />
+    <!-- Built-in pad emulation from the DualSense (supersedes the old DS4Windows setup).
+         ViGEmBus = the virtual pad (Xbox 360 or DS4); HidHide = cloak the physical DualSense from other
+         apps while emulating (cures double-input). Both drivers are BUNDLED under drivers\ (Content copy
+         above) and installed/upgraded by the driver-repair engine (tray "Install/Repair Drivers" / OOBE). -->
+    <PackageReference Include="Nefarius.Drivers.HidHide" Version="3.4.0" />
+    <PackageReference Include="Nefarius.ViGEm.Client" Version="1.21.256" />
+    <!-- Windows DPAPI (ProtectedData) for at-rest encryption of the Discord client secret + OAuth tokens
+         (LocalSecret). Not in the shared framework on .NET 8, so referenced explicitly; Windows-only, which
+         is fine (WPF app). Bundles into the single-file publish. -->
+    <!-- NamedPipeServerStreamAcl for the Arcade script helper's pipe: the security descriptor names
+         exactly the derived AppContainer SID + the current user (never ALL APPLICATION PACKAGES). -->
+    <PackageReference Include="System.IO.Pipes.AccessControl" Version="5.0.0" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+    <!-- Narration (accessibility A1): SAPI speech is the overlay's voice — Narrator can't service the
+         never-focused overlay window. Windows-only by nature; Core sees
+         only the ISpeechSink seam, so the OS-agnostic rule holds. -->
+    <PackageReference Include="System.Speech" Version="8.0.0" />
+  </ItemGroup>
+
+</Project>

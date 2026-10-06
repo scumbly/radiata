@@ -1,0 +1,57 @@
+<UserControl x:Class="ControllerWheel.ExceptionsEditorControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:loc="clr-namespace:ControllerWheel">
+  <Grid>
+  <ScrollViewer VerticalScrollBarVisibility="Auto">
+    <!-- MaxWidth drops with the added side inset so the prose column actually narrows: the cap, not the
+         right margin, is what sets the wrap width at normal window sizes. -->
+    <StackPanel Margin="45,25,45,15" MaxWidth="582" HorizontalAlignment="Left">
+
+      <!-- The heading IS the checkbox row: [2× box] [heading text]. The box scales alone (empty
+           Content); the heading text is a separate clickable label so it doesn't scale with it. -->
+      <StackPanel Orientation="Horizontal" Margin="4,2,0,0">
+        <CheckBox x:Name="SafeModeBox" VerticalAlignment="Center"
+                  AutomationProperties.Name="{loc:T Set Passthru Mode (bypass input isolation)}"
+                  Checked="SafeModeBox_Changed" Unchecked="SafeModeBox_Changed">
+          <CheckBox.LayoutTransform>
+            <ScaleTransform ScaleX="2" ScaleY="2"/>
+          </CheckBox.LayoutTransform>
+        </CheckBox>
+        <TextBlock Margin="9,0,0,0" VerticalAlignment="Center">
+          <Run Text="{loc:T Set Passthru Mode (Bypass Input Isolation)}" FontWeight="Bold" FontSize="15.5" Foreground="{StaticResource HeadingInk}" Cursor="Hand" MouseLeftButtonUp="SafeModeLabel_Click"/>
+        </TextBlock>
+      </StackPanel>
+      <TextBlock Foreground="#888" FontSize="11" Margin="4,6,0,0" TextWrapping="Wrap"
+                 loc:LocRich.Source="With Passthru Mode enabled, controller input also reaches the game **even while the wheel is open**. This helps Radiata avoid being incorrectly flagged by strict anticheat systems in games like Valorant, Call of Duty, Fortnite, and Rainbow Six Siege.">
+      </TextBlock>
+      <TextBlock Foreground="#888" FontSize="11" Margin="4,8,0,0" TextWrapping="Wrap"
+                 Text="{loc:T 'If you simply never want your controller input intercepted, you can leave Passthru Mode enabled as a personal preference. Note that input bleed-through while using the wheels can lead to undesired behavior in-game.'}"/>
+      <TextBlock Foreground="#888" FontSize="11" Margin="4,8,0,0" TextWrapping="Wrap"
+                 Text="{loc:T The exceptions below engage Passthru Mode automatically regardless of the setting above.}"/>
+
+      <TextBlock Text="{loc:T Always Use Passthru Mode For:}" FontWeight="Bold" FontSize="15.5" Foreground="{StaticResource HeadingInk}" Margin="0,22,0,6"/>
+
+      <ItemsControl x:Name="AppsList" Margin="4,10,0,0"/>
+
+      <StackPanel Orientation="Horizontal" Margin="4,10,0,0">
+        <Button x:Name="AddAppBtn" Content="{loc:T Add Application…}" VerticalAlignment="Center"
+                Padding="10,4" Click="AddAppBtn_Click"
+                ToolTip="{loc:T Passthru Mode while a chosen app runs}"/>
+        <ComboBox x:Name="AddGameBox" VerticalAlignment="Center" Margin="10,0,0,0"
+                  AutomationProperties.Name="{loc:T Add installed game to Passthru Mode}"
+                  Height="{Binding ActualHeight, ElementName=AddAppBtn}"
+                  DisplayMemberPath="Display" SelectionChanged="AddGameBox_SelectionChanged"
+                  ToolTip="{loc:T Passthru Mode for any installed game}"/>
+      </StackPanel>
+
+    </StackPanel>
+  </ScrollViewer>
+
+    <!-- Single tab-level Help chip, floating top-right. Overlays the scroll content (Panel.ZIndex) so it
+         is always visible and never pushes the content downward. -->
+    <TextBlock HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,10,18,0" Panel.ZIndex="1">
+      <InlineUIContainer BaselineAlignment="Center"><Button Style="{DynamicResource HelpChip}" Click="LearnMore_Click" Width="19" Height="19" FontSize="13" ToolTip="{loc:T Passthru Mode help}" AutomationProperties.Name="{loc:T Passthru Mode help}"/></InlineUIContainer>
+    </TextBlock>
+  </Grid>
+</UserControl>

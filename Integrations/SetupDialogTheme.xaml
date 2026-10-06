@@ -1,0 +1,19 @@
+<!-- Shared look for the small credential setup dialogs (Obs/DiscordSetupWindow): each merges this at its
+     own Window level. Deliberately separate from SettingsTheme.xaml — these are independent top-level
+     windows, not hosted inside SettingsWindow. -->
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <Style x:Key="StepNum" TargetType="TextBlock">
+    <Setter Property="FontSize" Value="13"/>
+    <Setter Property="FontWeight" Value="SemiBold"/>
+    <Setter Property="Foreground" Value="#3D405B"/>
+  </Style>
+  <Style x:Key="StepText" TargetType="TextBlock">
+    <Setter Property="FontSize" Value="13"/>
+    <Setter Property="Foreground" Value="#CC000000"/>
+    <Setter Property="TextWrapping" Value="Wrap"/>
+    <Setter Property="LineHeight" Value="19"/>
+  </Style>
+
+</ResourceDictionary>

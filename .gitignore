@@ -1,0 +1,24 @@
+# Build output
+bin/
+obj/
+publish/
+
+# IDE and editor state
+*.user
+*.suo
+.vs/
+.idea/
+
+# NuGet
+*.nupkg
+/packages/
+
+# OS
+Thumbs.db
+Desktop.ini
+
+# Reports the app and the CI locale check write to the working directory
+help-locales.txt
+locales.txt
+library-scan.txt
+site-help/

@@ -1,0 +1,40 @@
+# Build + the two desk gates, on every push and pull request. Nothing here publishes anything.
+#
+# `TestHarness all` is the default suite (pure Core + read-only source scans; the driver-writing suites are
+# opt-in and not in `all`). SettingsSmokeProbe constructs the Settings editors for real — the class of
+# failure it catches (a WPF resource lookup that compiles and throws at runtime) is invisible to the build.
+# Both need windows-latest.
+name: tests
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build
+        run: dotnet build ControllerWheel.csproj -c Debug
+      - name: TestHarness (default suite)
+        run: dotnet run --project tools/TestHarness -c Debug -- all
+      - name: SettingsSmokeProbe
+        run: dotnet run --project tools/SettingsSmokeProbe -c Debug
+      - name: Help + UI locale parity
+        shell: pwsh
+        run: |
+          # Radiata.exe is a WinExe: `&` returns before it exits, so the report would be read before it exists.
+          $p = Start-Process -FilePath bin\Debug\net8.0-windows\Radiata.exe -ArgumentList '--check-locales', 'locales.txt' -Wait -PassThru -NoNewWindow
+          if ($p.ExitCode -ne 0) { throw "--check-locales exited $($p.ExitCode)" }
+          Get-Content locales.txt
+          # Case-sensitive on purpose: the per-language summary lines read "0 stale", and the problem
+          # markers the report emits are upper-case.
+          if (Select-String -Path locales.txt -Pattern 'MARKUP|PLURAL|STALE' -CaseSensitive -Quiet) { throw 'locale check reported problems' }

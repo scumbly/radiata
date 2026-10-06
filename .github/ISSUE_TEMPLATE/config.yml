@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Radiata Help
+    url: https://getradiata.app/help/
+    about: Searchable help for installing, controller setup, input isolation and troubleshooting.
+  - name: Report a security vulnerability
+    url: https://github.com/scumbly/radiata/security/policy
+    about: Please report security problems privately, not as a public issue.

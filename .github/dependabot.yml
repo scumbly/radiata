@@ -1,0 +1,10 @@
+# Keeps the SHA-pinned actions in release.yml current: Dependabot opens a PR per update,
+# bumping the pinned SHA and its version comment together. Weekly is plenty at this cadence.
+# NuGet is deliberately NOT managed here — package bumps are maintainer-reviewed by hand
+# (pinned versions carry compatibility decisions, e.g. LiteDB 4.x and the SQLitePCLRaw pin).
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

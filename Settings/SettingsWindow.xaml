@@ -1,0 +1,225 @@
+<Window x:Class="ControllerWheel.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:loc="clr-namespace:ControllerWheel"
+        xmlns:local="clr-namespace:ControllerWheel"
+        Title="{loc:T Radiata — Settings}"
+        Width="690" Height="575"
+        MinWidth="690" MaxWidth="690" MinHeight="380"
+        WindowStartupLocation="Manual"
+        Background="White">
+
+  <Window.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <ResourceDictionary Source="SettingsTheme.xaml"/>
+      </ResourceDictionary.MergedDictionaries>
+    </ResourceDictionary>
+  </Window.Resources>
+
+  <Grid>
+
+    <!-- ── Tabs ──────────────────────────────────────────────────── -->
+    <!-- The window itself is WHITE (blends with the title bar + the strip behind the tab headers);
+         the tab CONTENT area carries the UiWindowBg tone via the TabControl background. -->
+    <TabControl x:Name="Tabs" Margin="4" Background="{StaticResource UiWindowBg}">
+      <!-- The wheel pair keeps BOLD headers as its only distinction; the explicit TextBlocks scope
+           the weight to the tab label, not the tab's content. -->
+      <TabItem>
+        <TabItem.Header><TextBlock Text="{loc:T Left Wheel}" FontWeight="Bold"/></TabItem.Header>
+        <local:WheelEditorControl x:Name="WheelAEditor"/>
+      </TabItem>
+      <TabItem>
+        <TabItem.Header><TextBlock Text="{loc:T Right Wheel}" FontWeight="Bold"/></TabItem.Header>
+        <local:WheelEditorControl x:Name="WheelBEditor"/>
+      </TabItem>
+      <!-- Everything after the wheel pair uses the short (2/3 height) tab style. -->
+      <TabItem Header="{loc:T Customize}" Style="{StaticResource ShortTabItem}">
+        <local:CustomizeEditorControl x:Name="CustomizeEditor"/>
+      </TabItem>
+      <TabItem Header="{loc:T Passthru Mode}" x:Name="SafeModeTab" Style="{StaticResource ShortTabItem}">
+        <local:ExceptionsEditorControl x:Name="ExceptionsEditor"/>
+      </TabItem>
+      <TabItem Header="{loc:T Advanced}" x:Name="AdvancedTab" Style="{StaticResource ShortTabItem}">
+        <local:SystemEditorControl x:Name="SystemEditor"/>
+      </TabItem>
+      <TabItem Header="{loc:T Help}" x:Name="HelpTab" Style="{StaticResource ShortTabItem}">
+        <local:HelpEditorControl x:Name="HelpEditor"/>
+      </TabItem>
+      <TabItem Header="{loc:T About}" Style="{StaticResource ShortTabItem}">
+        <Grid>
+          <ScrollViewer VerticalScrollBarVisibility="Auto">
+          <StackPanel Margin="22,18">
+            <!-- Header (top-right) and the tip-jar block share ONE row: the photo + copyright + blurb
+                 fill the free space to the LEFT of "Radiata" / the flower / the version. -->
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+              </Grid.ColumnDefinitions>
+
+              <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right"
+                          VerticalAlignment="Top" Margin="16,0,0,0">
+                <StackPanel VerticalAlignment="Center">
+                  <TextBlock Text="Radiata" FontSize="30" FontWeight="Bold" TextAlignment="Right"/>
+                  <TextBlock x:Name="AboutVersionText" FontSize="12" FontWeight="Normal" Foreground="#888" Margin="0,2,0,0" TextAlignment="Right"/>
+                </StackPanel>
+                <!-- The animated Radiata flower mark: leaves spring up, then petals sweep in, in the mark's
+                     authored colors (FlowerIcon). Self-contained in AboutFlowerControl. -->
+                <local:AboutFlowerControl Width="64" Height="64" Margin="14,0,0,0" VerticalAlignment="Center"/>
+              </StackPanel>
+
+              <!-- Tip-jar blurb photo: FIXED size — binding the circle to the text height grows it whenever
+                   the narrow column adds a text line. Full pack URI on purpose — relative URIs silently
+                   fail for code/brush-loaded images. -->
+              <!-- The whole blurb — card, photo, text — is one Tip Jar click target; the transparent
+                   Background is what makes the gaps between children hit-testable. The inner Hyperlink
+                   stays for keyboard/screen-reader reach and handles its own navigation. -->
+              <Grid Grid.Column="0" HorizontalAlignment="Left" VerticalAlignment="Top"
+                    Background="Transparent" Cursor="Hand" MouseLeftButtonUp="TipJarCard_Click"
+                    ToolTip="{loc:T Open the Tip Jar}">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="Auto"/>
+                  <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <!-- White card behind the blurb. It must be the FIRST child so the photo circle and its
+                     ring paint over it: the card's left edge runs under the circle and is never seen.
+                     Left margin ≈ half the 110px circle; the negative right margin carries the card past
+                     the text column's right edge for even padding. -->
+                <Border Grid.Column="0" Grid.ColumnSpan="2" Margin="52,3,-19,3" CornerRadius="20"
+                        Background="{DynamicResource UiNoticeBg}"
+                        BorderBrush="{DynamicResource UiCardBorder}" BorderThickness="1"/>
+
+                <!-- The ring is the logo's three colours, a third of the circle each. An Ellipse stroke can
+                     only be one brush, so it's three 120° arcs over an unstroked fill ellipse, radius 53
+                     with a 4px stroke. Each seam then gets a short arc laid OVER it carrying a two-stop
+                     gradient, so the transitions read as blends rather than hard joints — WPF has no conic
+                     gradient, so the gradient runs along the blend arc's CHORD, a close approximation at
+                     this arc length. Keep the blend arcs LAST in the Canvas: they must paint on top. -->
+                <Grid Grid.Column="0" VerticalAlignment="Center" Margin="0,0,12,0" Width="110" Height="110">
+                  <Ellipse Width="110" Height="110">
+                    <Ellipse.Fill>
+                      <ImageBrush ImageSource="pack://application:,,,/Assets/jesse-and-magpie.png" Stretch="UniformToFill"/>
+                    </Ellipse.Fill>
+                  </Ellipse>
+                  <Canvas Width="110" Height="110">
+                    <!-- top third — blossom terracotta -->
+                    <Path Stroke="#E07A5F" StrokeThickness="4" Data="M 9.101,28.5 A 53,53 0 0 1 100.899,28.5"/>
+                    <!-- bottom-right third — sage -->
+                    <Path Stroke="#81B29A" StrokeThickness="4" Data="M 100.899,28.5 A 53,53 0 0 1 55,108"/>
+                    <!-- bottom-left third — the left leaf's dark blue -->
+                    <Path Stroke="#3D405B" StrokeThickness="4" Data="M 55,108 A 53,53 0 0 1 9.101,28.5"/>
+
+                    <!-- Seam blends, clockwise from the top. -->
+                    <Path StrokeThickness="4" Data="M 4.594,38.622 A 53,53 0 0 1 15.614,19.536">
+                      <Path.Stroke>
+                        <LinearGradientBrush StartPoint="0,1" EndPoint="1,0">
+                          <GradientStop Offset="0" Color="#3D405B"/>
+                          <GradientStop Offset="1" Color="#E07A5F"/>
+                        </LinearGradientBrush>
+                      </Path.Stroke>
+                    </Path>
+                    <Path StrokeThickness="4" Data="M 94.386,19.536 A 53,53 0 0 1 105.406,38.622">
+                      <Path.Stroke>
+                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                          <GradientStop Offset="0" Color="#E07A5F"/>
+                          <GradientStop Offset="1" Color="#81B29A"/>
+                        </LinearGradientBrush>
+                      </Path.Stroke>
+                    </Path>
+                    <!-- Both ends share a y, so this seam's chord is exactly horizontal — the gradient runs
+                         right-to-left rather than the other two's top-to-bottom sense. -->
+                    <Path StrokeThickness="4" Data="M 66.019,106.842 A 53,53 0 0 1 43.981,106.842">
+                      <Path.Stroke>
+                        <LinearGradientBrush StartPoint="1,0" EndPoint="0,0">
+                          <GradientStop Offset="0" Color="#81B29A"/>
+                          <GradientStop Offset="1" Color="#3D405B"/>
+                        </LinearGradientBrush>
+                      </Path.Stroke>
+                    </Path>
+                  </Canvas>
+                </Grid>
+                <!-- Vertical padding INSIDE the card: a translation that runs taller than the photo is what sets the
+                     card's height, and without this the first and last lines sit on the card's stroke. -->
+                <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="0,14,0,14">
+                  <TextBlock Foreground="#666" FontSize="12" Margin="0,0,0,6" TextWrapping="Wrap"
+                             Text="© 2026 Jesse Holden"/>
+                  <!-- Segoe UI Semilight is named as both a family AND FontWeight="350", deliberately:
+                       Windows registers it as its own GDI family (segoeuisl.ttf) AND as weight 350 of the
+                       Segoe UI typographic family, and WPF's resolution has favoured either one. Naming
+                       both lands on Semilight regardless; a machine with neither falls back to Segoe UI
+                       Regular — a weight change, never a different typeface. Nothing is embedded: the face
+                       has shipped with Windows since 8.1.
+                       ⚠ The lighter stroke needs more contrast than Regular did, so the ink stays at #555
+                       rather than the paragraph's usual grey. Size stays 12.5px: the lighter weight wants a
+                       little more size, not less. -->
+                  <TextBlock x:Name="TipJarText"
+                             FontFamily="Segoe UI Semilight, Segoe UI" FontWeight="350"
+                             FontSize="12.5" LineHeight="17"
+                             Foreground="#555" TextWrapping="Wrap" Width="262" HorizontalAlignment="Left"
+                             loc:LocRich.LookKey="BodyBold"
+                             loc:LocRich.Source="Radiata was made by one guy over a few hundred hours of long nights and weekends. I hope you like using it as much as I do. Your support at any amount helps me keep Radiata free: thank you! [Tip Jar](https://getradiata.app/tip)">
+                  </TextBlock>
+                </StackPanel>
+              </Grid>
+            </Grid>
+
+            <!-- The credits block sits 8px in from the blurb card on both sides. -->
+            <!-- Shown only in a translated UI: the machine-translation notice + English-only support policy. -->
+            <TextBlock x:Name="TranslationNote" FontSize="10.8" Foreground="#777" Margin="8,24,8,0" TextWrapping="Wrap" MaxWidth="560" HorizontalAlignment="Left" Visibility="Collapsed"
+                       loc:LocRich.Source="This interface was translated by an AI language model; the English version is authoritative. Support is English-only."/>
+            <TextBlock FontSize="10.8" Foreground="#777" Margin="8,28,8,6">
+              <Run Text="{loc:T Credits &amp; open-source components}"/>&#160;<Hyperlink Click="OpenLicenses_Click" Foreground="#3D405B"><Run Text="{loc:T (licenses &amp; attributions)}"/></Hyperlink>
+            </TextBlock>
+            <TextBlock FontSize="10.8" Foreground="#777" Margin="8,0,8,6" TextWrapping="Wrap" MaxWidth="560" HorizontalAlignment="Left">
+              <Run Text="{loc:T 'Radiata is free software under the GNU GPL v3 and comes with no warranty.'}"/><LineBreak/><Run Text="{loc:T 'Source code:'}"/>&#160;<Hyperlink NavigateUri="https://github.com/scumbly/radiata" RequestNavigate="Link_RequestNavigate" Foreground="#3D405B"><Run Text="github.com/scumbly/radiata"/></Hyperlink>&#160;<Hyperlink Click="OpenGplLicense_Click" Foreground="#3D405B"><Run Text="{loc:T (view the full license)}"/></Hyperlink>
+            </TextBlock>
+            <TextBlock TextWrapping="Wrap" MaxWidth="560" HorizontalAlignment="Left" Margin="8,0,8,0"
+                       Foreground="#666" FontSize="9.9" LineHeight="15.3">
+              <Hyperlink NavigateUri="https://eranhaas.myportfolio.com/" RequestNavigate="Link_RequestNavigate" Foreground="#3D405B"><Run Text="Eran Haas"/></Hyperlink><Run Text=" — "/><Run Text="{loc:T testing and feedback.}"/><LineBreak/>
+              <Hyperlink NavigateUri="https://soundcloud.com/justzerosandones" RequestNavigate="Link_RequestNavigate" Foreground="#3D405B"><Run Text="Dylan Ribb"/></Hyperlink><Run Text=" — "/><Run Text="{loc:T music.}"/><LineBreak/>
+              <Run Foreground="#444">Nefarius Software</Run><Run Text=" — "/><Run Text="{loc:T Nefarius.ViGEm.Client and Nefarius.Drivers.HidHide libraries (MIT).}"/><LineBreak/>
+              <Run Foreground="#444">HidSharp</Run><Run Text=" — "/><Run Text="{loc:T raw HID controller reading (Apache-2.0).}"/><LineBreak/>
+              <Run Foreground="#444">NAudio</Run><Run Text=" — "/><Run Text="{loc:T audio device &amp; volume control (MIT).}"/><LineBreak/>
+              <Run Foreground="#444">MahApps.Metro.IconPacks</Run><Run Text=" — "/><Run Text="{loc:T 'Material Design Icons (MIT wrapper; icons © Pictogrammers, Apache-2.0).'}"/><LineBreak/>
+              <Run Foreground="#444">LiteDB</Run><Run Text=" "/><Run Text="{loc:T and}"/><Run Text=" "/><Run Foreground="#444">Microsoft.Data.Sqlite</Run><Run Text=" — "/><Run Text="{loc:T reading installed-game libraries (MIT).}"/><LineBreak/>
+              <Run Text="{loc:T Built on .NET and WPF.}"/>
+            </TextBlock>
+            <TextBlock Margin="8,10,8,0" Foreground="#888" FontSize="9.9" TextWrapping="Wrap" MaxWidth="560" HorizontalAlignment="Left"
+                       Text="{loc:T 'Game cover art is fetched from public storefront CDNs for display only. Steam, Xbox, GOG Galaxy, Ubisoft Connect, Epic Games, Battle.net, itch.io, Playnite, and Discord are trademarks of their respective owners. Radiata is an independent tool and is not affiliated with, endorsed by, or sponsored by any of them. Radiata is free software, released under the GNU General Public License, version 3 (GPLv3), with additional terms per GPLv3 §7 — see the LICENSE file. You may use, study, share, and modify it under those terms. \'Radiata\'™ and the Radiata flower mark™ are trademarks of Jesse Holden and are not licensed by the GPL. It is distributed in the hope that it will be useful. RELEASED WITH NO WARRANTY EXPRESSED OR IMPLIED.'}"/>
+
+          </StackPanel>
+          </ScrollViewer>
+        </Grid>
+      </TabItem>
+    </TabControl>
+
+    <!-- Wheel watermark: bleeds off the bottom-right corner, over every tab's content (the asset is
+         near-white with alpha, so it reads as a faint emboss). Click-through. -->
+    <Image Source="pack://application:,,,/Assets/wheel-background-alpha.png" Width="538" IsHitTestVisible="False"
+           HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,-150,-204"
+           Opacity="0.9"/>
+
+    <!-- Status readout overlaid at the bottom-right, so it floats over the tab content instead of taking a
+         strip below the title bar. Version lives in the title bar only. A dark rounded badge (click-through,
+         auto-hidden after a few seconds by SetStatus in the code-behind) instead of a bare transparent label. -->
+    <Border x:Name="StatusBadge" VerticalAlignment="Bottom" HorizontalAlignment="Right"
+            Margin="0,0,14,10" Padding="10,5" Background="#992B2B2B" CornerRadius="4"
+            IsHitTestVisible="False" Visibility="Collapsed">
+      <TextBlock x:Name="StatusText" Foreground="#F2F2F2" FontSize="14"/>
+    </Border>
+
+    <!-- Wheels-disabled strip: pinned to the window's bottom edge whenever the wheels are OFF — a
+         one-click re-enable that doesn't need the controller chord. Driven by SetWheelsEnabled. -->
+    <Border x:Name="WheelsDisabledStrip" VerticalAlignment="Bottom" Height="26"
+            Background="#2B2B33" Visibility="Collapsed">
+      <DockPanel LastChildFill="False" Margin="12,0">
+        <TextBlock DockPanel.Dock="Left" VerticalAlignment="Center" Foreground="#E8E8EE" FontSize="12"
+                   Text="{loc:T Wheels are currently disabled — the controller passes straight through to games.}"/>
+        <Button DockPanel.Dock="Right" Content="{loc:T Enable Wheels}" Padding="10,1" VerticalAlignment="Center"
+                Click="EnableWheelsBtn_Click"/>
+      </DockPanel>
+    </Border>
+
+  </Grid>
+</Window>
