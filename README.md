@@ -16,81 +16,54 @@
   <img src="https://getradiata.app/assets/screenshots/radiata-main.webp" alt="A Radiata wheel open over the desktop beside the Settings window" width="800">
 </p>
 
-Radiata is a feature-rich, controller-based radial menu utility for a Windows gaming PC. Launch a game, join the Discord call, swap to headphones, start your stream, all from a controller.
+Radiata is a feature-rich, controller-based radial menu utility for a Windows gaming PC.
 
-> **Status:** pre-1.0. Windows 10 and 11, x64 (Intel/AMD) only. Windows on ARM isn't supported: Radiata
-> ships as an x64 build, and the HidHide installer it needs to hide your controller is x64-only.
+### Support Radiata ([**Tip Jar**](https://getradiata.app/tip))
 
-### ☕ Support Radiata ([**Tip Jar**](https://getradiata.app/tip))
-
-Radiata is free and GPLv3, built by one person. If it earns a place on your gaming PC, a tip at
-[**getradiata.app/tip**](https://getradiata.app/tip) keeps it going. There is no paid tier. Tipping is thanks, not a purchase.
+Radiata is free and GPLv3, built by one person. If it earns a place on your gaming PC, your tips are incredibly appreciated.
+[**https://ko-fi.com/getradiata**](https://ko-fi.com/getradiata) 
 
 ## Features
 
-- **Two radial wheels**, summoned by a fully configurable controller chord. Hold to open, tilt to aim, release to
-  fire; release while centred to cancel. Up to 12 slices per wheel.
+- **Two radial wheels you build and customize**, opened with a button combination of your choice. 
 - **Config-driven slices**: launch or focus apps, send key combos, open URIs, switch audio devices and
-  set or mute volume, toggle HDR and Extend/Clone display mode, sleep, reboot, lock or shut down, drive
-  Xbox Game Bar and OBS Studio, type into a game's text chat, and control Discord (join or leave a
-  voice channel, mute, deafen).
+  set or mute volume, toggle HDR, sleep, reboot, lock or shut down, drive OBS Studio, send a
+  game's text chat, and control Discord (join or leave a voice channel, mute, deafen).
 - **Game Grid**: a controller-scrollable launcher for every installed game across Steam, Epic, GOG, Xbox, Playnite, 
   Battle.net, Amazon, itch.io, Ubisoft and EA, with real cover art (optional SteamGridDB integration)
   and optional Playnite library support.
 - **In-wheel editing**: add, move, delete and reorder slices from the couch with the controller alone.
-  Edits save live.
 - **Clean input isolation**: games are given a virtual gamepad in place of your controller, and that pad
   is held neutral while a wheel is open, so the game underneath never sees your menu input. No game hooks
   or injection.
-- **Passthru Mode**: a global or per-game bypass for strict kernel-anticheat titles.
-- **Looks and sounds**: eight built-in wheel materials and matching sound sets.
+- **Passthru Mode**: a global or per-game bypass for input isolation.
+- **Customizable**: eight built-in wheel materials and matching sound sets.
 - **Accessibility**: Reduce motion, narration of the wheel and Game Grid, swap-sides and toggle
   activation, and a choice of one-stick or either-stick aiming. The whole app and its Help are available
   in English, Spanish, German, Japanese and Arabic.
-- **A small built-in Arcade** of games that open in a round window where the wheel was.
+- **A small built-in Arcade** of quick games that open right off the wheel, instantly dismissible and resumable.
 
 ## Install
 
 1. Download the latest `Radiata-<version>-setup.exe` from
    [**Releases**](https://github.com/scumbly/radiata/releases) or [**getradiata.app**](https://getradiata.app).
    Download Radiata only from those two places.
-2. Run it. Radiata installs per-user, so the app itself needs no admin rights; Windows asks for
-   permission when it installs the controller drivers, so leave **Install drivers (recommended)** checked and approve it.
+2. Run it.  Windows asks for permission when it installs the controller drivers, so leave **Install drivers (recommended)** checked and approve it.
 3. First-run setup opens automatically and walks you through the drivers and a controller check.
 
-Release installers are code-signed (see [`SECURITY.md`](SECURITY.md) for how to verify one). Windows
+Release installers are code-signed. Windows
 SmartScreen can still show "Windows protected your PC" for a newly released or rarely downloaded file
 until its publisher has built up reputation. If it does, confirm the file came from one of the two places
 above, then choose **More info**, **Run anyway**. After that, updates are one button from inside the app
 (**Settings ▸ Advanced ▸ Check for Updates**).
-
-## Controllers
-
-- **DualSense Edge, DualSense and DualShock 4** (Bluetooth or USB): full support with clean isolation.
-  The Edge's Fn buttons are the reference summon.
-- **Xbox pads over USB or a wireless dongle**: isolated with the same virtual pad and cloak, presented to
-  the game as a virtual Xbox 360 pad.
-- **Xbox pads over Bluetooth**: the wheel works, and Radiata attempts the same isolation. The cloak is
-  only trusted after a live check confirms other apps really lost the pad; when that can't be confirmed,
-  it falls back automatically. The worst case is fallback mode, never a dead controller. Most third-party
-  Xbox-style pads present as a DualShock 4 over Bluetooth and take the full path.
-- **Pads with extra paddles or buttons** (e.g. 8BitDo Ultimate 2C): over Bluetooth the
-  extra L4/R4 buttons can be chosen as summon buttons in **Settings ▸ Customize ▸ Triggers**.
-- **Two or more Xbox pads at once**: isolation is off by design. Radiata can't yet tell which pad it is
-  standing in for, and cloaking the wrong one would make a second player's controller disappear, so it
-  leaves both visible.
-
-In fallback mode nothing breaks and nothing is hidden from you: the wheel opens, aims and fires as
-normal, but the game *also* sees your stick and button input while a wheel is open. Radiata's tray
-tooltip says which mode you're in.
 
 ## How input isolation works
 
 With the optional drivers installed, Radiata presents games with a virtual gamepad (ViGEmBus) and hides
 your physical controller from them (HidHide), then holds the virtual pad neutral while a wheel, the Game
 Grid or an editor is on screen, so menu input never reaches the game. Nothing is hooked into or injected
-into any game; without the drivers, or in Passthru Mode, games keep seeing your controller and Radiata
-simply watches alongside it.
+into any game; without the drivers, or in Passthru Mode, games keep seeing your controller and Radiata 
+watches alongside it.
 
 ## Drivers
 
@@ -152,7 +125,7 @@ action type, controller support, input isolation and troubleshooting.
 ## Privacy
 
 Radiata has no analytics, no advertising, no account and no persistent identifier. It contacts the
-project's server for two things only: an update check that sends just the app version, and crash reports
+project's server for 2 things: an update check that sends just the app version, and crash reports
 that are sent only with your approval. See [`PRIVACY.md`](PRIVACY.md) for the details.
 
 ## Contributing
