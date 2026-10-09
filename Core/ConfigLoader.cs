@@ -354,6 +354,12 @@ public sealed class ConfigLoader : IDisposable
                 ObsPort    = Clamp(sys.ObsPort,    1, 65535, nameof(sys.ObsPort)),
                 SafeModeApps = sys.SafeModeApps?.Where(a => a is not null && !string.IsNullOrWhiteSpace(a.Path))
                                                .ToList() ?? [],
+                // An explicit JSON null replaces a property initializer, and System.Text.Json skips a
+                // property's converter for null — so each collection a consumer dereferences is made
+                // non-null here, the one boundary every route into the app crosses.
+                TriggerModes        = sys.TriggerModes ?? new(),
+                DisabledStorefronts = sys.DisabledStorefronts?.Where(s => s is not null).ToList() ?? [],
+                KnownControllerKinds = sys.KnownControllerKinds?.Where(s => s is not null).ToList() ?? [],
                 // An unknown language (hand-edited file, or a backup from a build that shipped more
                 // languages) would leave the picker with nothing selected — normalise to English.
                 Language = sys.Language is null ? null : HelpLocalization.Normalize(sys.Language),

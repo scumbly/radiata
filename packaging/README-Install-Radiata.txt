@@ -21,13 +21,12 @@ INSTALL (about 3 minutes)
    up reputation. If you see it, and the file came from getradiata.app or the Radiata
    releases page on GitHub, click "More info", then "Run anyway".
 
-3. In setup, leave "Install drivers (recommended)" ticked.
-   Radiata installs without admin rights; Windows asks for permission when you install the
-   controller drivers. The driver step at the end installs two small open-source drivers:
+3. In setup, leave "Install drivers (recommended)" ticked. The driver step at the end
+   installs two small open-source drivers:
      - ViGEmBus lets Radiata present a virtual gamepad
      - HidHide hides your real pad from the game so inputs don't double up
 
-   APPROVE the Windows prompts and each driver's installer. During this step Radiata also registers
+   APPROVE any necessary Windows prompts and each driver's installer. During this step Radiata also registers
    itself with HidHide so it can still see the controller it hides from other apps. (These
    drivers are signed by their developer; they're the standard tools DS4Windows/reWASD use.)
 

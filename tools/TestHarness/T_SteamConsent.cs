@@ -84,6 +84,47 @@ internal static class T_SteamConsent
         expiryTimer.Start();
         PumpFor(60);
         H.Check("shutdown timer tick stops without evaluating consent", !expiryTimer.IsEnabled && Get<bool>(app, "_userSteamRestartPending"));
+
+        RestartMarker();
+    }
+
+    /// <summary>The cross-restart marker file behind the update prompt: a withdrawn request is gone, and an
+    /// armed one is honoured once and only while fresh. Runs in the harness folder, never a real profile.</summary>
+    static void RestartMarker()
+    {
+        // SteamRestartFlag is internal to the app assembly.
+        var flag = H.AppType("SteamRestartFlag");
+        void Do(string name) => H.InvokeStatic(flag, name);
+        bool Consume() => (bool)H.InvokeStatic(flag, "Consume");
+        var maxAge = (TimeSpan)H.GetStatic(flag, "MaxAge");
+        string marker = System.IO.Path.Combine(AppPaths.AppDataDir, "pending-steam-restart.txt");
+        H.Check("marker lives in the isolated data folder",
+                AppPaths.AppDataDir == (string)AppContext.GetData("Radiata.TestDataDirectory"));
+        if (System.IO.File.Exists(marker)) System.IO.File.Delete(marker);
+
+        Do("Arm");
+        H.Check("Arm writes the marker", System.IO.File.Exists(marker));
+        Do("Disarm");
+        H.Check("Disarm removes it", !System.IO.File.Exists(marker));
+        H.Check("a disarmed marker is not honoured", !Consume());
+        Do("Disarm");   // no marker: inert
+        H.Check("Disarm with nothing armed is a no-op", !System.IO.File.Exists(marker));
+
+        Do("Arm");
+        H.Check("a fresh marker is honoured", Consume());
+        H.Check("...and consumed", !System.IO.File.Exists(marker) && !Consume());
+
+        Do("Arm");
+        System.IO.File.SetLastWriteTimeUtc(marker, DateTime.UtcNow - maxAge + TimeSpan.FromMinutes(1));
+        H.Check("a marker just inside the window is honoured", Consume());
+
+        using var trace = new H.TraceGrab();
+        Do("Arm");
+        System.IO.File.SetLastWriteTimeUtc(marker, DateTime.UtcNow - maxAge - TimeSpan.FromMinutes(1));
+        H.Check("a marker past the window is NOT honoured", !Consume());
+        H.Check("...it is deleted", !System.IO.File.Exists(marker));
+        H.Check("...and the discard is traced", trace.Saw("stale Steam restart marker"));
+        H.Check("the window is longer than an install", maxAge >= TimeSpan.FromMinutes(10));
     }
     static void PumpFor(int milliseconds)
     {

@@ -228,10 +228,15 @@ public partial class SettingsWindow : Window
         // The tabs' controls are refreshed only when they disagree with the reloaded config on a field they
         // own: layering the controls' ApplyTo chain onto the reloaded SystemConfig reproduces it exactly when
         // they already show it (Settings' own write echoing back, or an App-side write to a field no control
-        // owns), and differs when the file was changed outside the window (a hand edit, the tray's Passthru
-        // Mode item). Their Load paths are _loading-guarded, so the refresh raises no Changed and no save.
+        // owns), and differs when the file was changed outside the window (a hand edit). Fields an outside
+        // writer also owns (the tray's Passthru Mode item, the setup wizard, the material cycle) are written
+        // by their control only when the user moved it, so ApplyTo keeps the reloaded value for them and the
+        // chain can't see the change; each editor's ChangedOutside reports those. Their Load paths are
+        // _loading-guarded, so the refresh raises no Changed and no save.
         // Without it the stale controls would also be folded back over the new values by the next Save.
-        bool controlsStale = System.Text.Json.JsonSerializer.Serialize(cfg.System) !=
+        bool controlsStale = ExceptionsEditor.ChangedOutside(cfg.System) ||
+            SystemEditor.ChangedOutside(cfg.System) || CustomizeEditor.ChangedOutside(cfg.System) ||
+            System.Text.Json.JsonSerializer.Serialize(cfg.System) !=
             System.Text.Json.JsonSerializer.Serialize(
                 ExceptionsEditor.ApplyTo(SystemEditor.ApplyTo(CustomizeEditor.ApplyTo(cfg.System))));
         _systemBase   = cfg.System;
@@ -544,6 +549,11 @@ public partial class SettingsWindow : Window
             return false;
         }
         _saveFailed = false;
+        // Each editor re-bases the fields the user just wrote; a field it left alone stays reported by
+        // ChangedOutside until the echo's refresh re-Loads the control.
+        ExceptionsEditor.NoteSaved(updated.System);
+        SystemEditor.NoteSaved(updated.System);
+        CustomizeEditor.NoteSaved(updated.System);
         PushObsConfigured(updated.System);   // an OBS slice's setup prompt clears without a reopen
         // Live-refresh the Wheel tabs' icon-well material so a Customize material change shows without a
         // window reopen (LoadFromConfig only pushes it at open).

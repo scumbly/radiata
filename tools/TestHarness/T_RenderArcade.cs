@@ -65,7 +65,7 @@ internal static class T_RenderArcade
     {
         // Start the run, then let every serve go by.
         [PetalPop.GameId] = ([new(0.05, Cross: true), new(2.0)], 900),
-        // Lob as fast as the launcher allows, so the heap outgrows its limit.
+        // Fire as fast as the launcher allows, so the heap outgrows its limit.
         [Connate.GameId] = ([new(0.05, Cross: true), new(0.25)], 900),
     };
 

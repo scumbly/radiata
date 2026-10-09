@@ -217,7 +217,8 @@ internal static class GameMetadata
     }
 
     /// <summary>Revert the game's COVER to the auto-resolved default (Select cycle stop 0); the logo state
-    /// (Start) is preserved. Drops the whole record when everything is back at defaults.</summary>
+    /// (Start) and grid personalization are preserved. Drops the whole record when everything is back at
+    /// defaults.</summary>
     internal static void ClearCoverPath(InstalledGame game)
     {
         lock (_overridesLock)
@@ -225,7 +226,7 @@ internal static class GameMetadata
             var p = Resolve(game, create: false);   // re-homes under CoverKey(game) if the key had flipped
             if (p is null) return;
             p.Path = "";
-            if (!p.HideLogo && !p.LogoUnhidden && p.LogoIndex == 0) Overrides().Remove(CoverKey(game));
+            if (IsPrunable(p)) Overrides().Remove(CoverKey(game));
             SaveOverrides();
         }
     }
@@ -247,15 +248,17 @@ internal static class GameMetadata
             // default — record it, or the curated hide re-applies on the next tile draw and the stop the
             // user just landed on is invisible.
             pick.LogoUnhidden = !hideLogo && CuratedArt.Get(game.Name)?.HideLogo == true;
-            if (IsPrunable(pick) && !hideLogo && logoIndex == 0 && !pick.LogoUnhidden)
+            if (IsPrunable(pick))
                 Overrides().Remove(CoverKey(game));
             SaveOverrides();
         }
     }
 
-    /// <summary>Nothing left worth keeping in a pick (art AND grid personalization all default).</summary>
+    /// <summary>Nothing left worth keeping in a pick: cover, logo state AND grid personalization all at their
+    /// defaults. The one test every prune site uses, so resetting one facet never drops another.</summary>
     private static bool IsPrunable(CoverPick p) =>
-        p.Path.Length == 0 && !p.Favorite && !p.Hidden && p.LastLaunched == 0;
+        p.Path.Length == 0 && !p.HideLogo && !p.LogoUnhidden && p.LogoIndex == 0
+        && !p.Favorite && !p.Hidden && p.LastLaunched == 0;
 
     // ── Game Grid personalization (favorite / hidden / recency) ─────────────────────────────────────
 
@@ -333,7 +336,7 @@ internal static class GameMetadata
                 foreach (var k in map.Keys.ToList())
                 {
                     map[k].Path = "";
-                    if (!map[k].HideLogo && !map[k].LogoUnhidden && map[k].LogoIndex == 0) map.Remove(k);
+                    if (IsPrunable(map[k])) map.Remove(k);
                 }
                 SaveOverrides();
             }

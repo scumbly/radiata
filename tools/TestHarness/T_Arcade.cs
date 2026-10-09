@@ -32,6 +32,8 @@ internal static class T_Arcade
 
         CatalogIsWired();
 
+        PauseActionRow();
+
         InternodeOverTop();
 
         H.Group("Arcade — an unavailable build conceals everything, yet slices still resolve");
@@ -183,6 +185,184 @@ internal static class T_Arcade
         }
     }
 
+    /// <summary>The host's pause-row handling of an action row (<see cref="ArcadePauseOption.StartsOnConfirm"/>):
+    /// Connate's START AT STAGE browses on the d-pad and starts only on Cross, while every other row — Kabloom's
+    /// starting size, Connate's RADIAL CONTROLS — still applies on a step and cycles on Cross. Driven through the
+    /// control's own <c>StepPause</c>, with the arcade store backed up because a start persists.</summary>
+    private static void PauseActionRow()
+    {
+        H.Group("Arcade — the pause menu's action row browses on the d-pad and starts on Cross");
+        var path = Path.Combine(AppPaths.AppDataDir, "arcade-state.json");
+        var backup = path + ".harness-backup";
+        bool backedUp = false;
+        try
+        {
+            if (File.Exists(path))
+            {
+                try { File.Delete(backup); } catch { }
+                File.Move(path, backup);
+                backedUp = true;
+            }
+            Directory.CreateDirectory(AppPaths.AppDataDir);
+            ArcadeStore.DropCacheForHarness();
+
+            const int Right = (int)ArcadeInput.DPad.Right, Left = (int)ArcadeInput.DPad.Left;
+            const BindingFlags Priv = BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public;
+            System.Collections.Generic.IReadOnlyList<ArcadePauseOption> Options(object c) =>
+                (System.Collections.Generic.IReadOnlyList<ArcadePauseOption>)c.GetType().GetProperty("PauseOptions", Priv)!.GetValue(c)!;
+            object Control(IArcadeGame game, string rowKey)
+            {
+                var c = T_RenderArcade.NewControl();
+                T_Render.Set(c, "_game", game);
+                T_Render.Set(c, "_musicOn", true);
+                T_Render.Set(c, "_paused", true);
+                var fixedRows = (Array)c.GetType().GetProperty("FixedRows", Priv)!.GetValue(c)!;
+                T_Render.Set(c, "_pauseIndex", fixedRows.Length + Options(c).ToList().FindIndex(o => o.Key == rowKey));
+                return c;
+            }
+            ArcadePauseOption Row(object c, string key) => Options(c).First(o => o.Key == key);
+            void Press(object c, int dpad = 0, bool cross = false)
+            {
+                T_Render.Set(c, "_dpadEdges", (ArcadeInput.DPad)dpad);
+                T_Render.Set(c, "_crossEdge", cross);
+                T_Render.Call(c, "StepPause");
+            }
+            bool Asking(object c) => T_Render.Get(c, "_confirmPrompt") is not null;
+            void Answer(object c, bool yes)
+            {
+                T_Render.Set(c, "_confirmYes", yes);
+                Press(c, cross: true);
+            }
+            Connate Live(int unlocked, int start)
+            {
+                var g = (Connate)T_RenderArcade.Create(Connate.GameId);
+                g.SeedHighScore(1234);
+                g.RestoreSettings($"{{\"Radial\":false,\"Unlocked\":{unlocked}}}");
+                g.ApplyPauseOption(Connate.StartKey, Array.IndexOf(g.Starts.Offered(), start));
+                T_RenderArcade.Play(g, [new(0.4)]);
+                return g;
+            }
+
+            // Stepping browses: no prompt, no restart, the run untouched, the shown value moves and clamps.
+            var live = Live(20, 5);
+            string snapshot = live.Serialize();
+            var c1 = Control(live, Connate.StartKey);
+            for (int i = 0; i < 5; i++) Press(c1, Right);
+            H.Check("stepping over a live run never prompts", !Asking(c1));
+            H.Check("stepping never restarts or touches the run", live.StartStage == 5 && live.Serialize() == snapshot);
+            H.Check("the shown value follows the d-pad and clamps at the last start",
+                    Row(c1, Connate.StartKey).Selected == 4 && Row(c1, Connate.StartKey).Choices[4] == "20");
+            Press(c1, Left); Press(c1, Left);
+            H.Check("left steps back (no wrap)", Row(c1, Connate.StartKey).Selected == 2 && !Asking(c1) && live.StartStage == 5);
+
+            // Closing the menu discards the browsed value.
+            T_Render.Call(c1, "TogglePause", true);
+            T_Render.Call(c1, "TogglePause", true);
+            T_Render.Set(c1, "_pauseIndex", 4);
+            H.Check("closing and reopening the menu shows the stage the run began at",
+                    Row(c1, Connate.StartKey).Selected == Array.IndexOf(live.Starts.Offered(), 5) && live.StartStage == 5);
+
+            // Cross starts at the shown value, through the Reset confirm over a live run.
+            Press(c1, Right); Press(c1, Right);   // 5 -> 10 -> 15
+            Press(c1, cross: true);
+            H.Check("Cross over a live run asks THIS ENDS THE RUN IN PROGRESS", Asking(c1)
+                    && (string)T_Render.Get(c1, "_confirmPrompt")! == Loc.T(UiText.Arcade.EndsRun));
+            H.Check("nothing has restarted while the question is up", live.StartStage == 5 && live.Serialize() == snapshot);
+            Answer(c1, yes: false);
+            H.Check("NO leaves the run as it was", !Asking(c1) && live.StartStage == 5 && live.Serialize() == snapshot);
+            Press(c1, cross: true);
+            Answer(c1, yes: true);
+            H.Check("YES starts a new run at the shown value, seeded to its threshold",
+                    live.StartStage == 15 && live.ExplodedValue == ConnateTuning.StageThresholdFor(15));
+            H.Check("the row then shows the new run's stage", Row(c1, Connate.StartKey).Selected == 3);
+
+            // Cross at the stage the run already began at is still a new run, so it asks.
+            Press(c1, cross: true);
+            H.Check("Cross at the current start over a live run asks", Asking(c1));
+            Answer(c1, yes: false);
+
+            // Value 1 is Reset.
+            for (int i = 0; i < 4; i++) Press(c1, Left);
+            Press(c1, cross: true);
+            H.Check("Cross on 1 over a live run asks", Asking(c1));
+            Answer(c1, yes: true);
+            H.Check("Cross on 1 is Reset: the opening card at stage 1",
+                    live.Phase == Connate.Stage.Intro && live.StartStage == 1 && live.CollectedScore == 0);
+
+            // Nothing live: Cross starts without a question.
+            var idle = (Connate)T_RenderArcade.Create(Connate.GameId);
+            idle.RestoreSettings("{\"Radial\":false,\"Unlocked\":20}");
+            var c2 = Control(idle, Connate.StartKey);
+            Press(c2, Right); Press(c2, Right);
+            Press(c2, cross: true);
+            H.Check("Cross with nothing to lose starts at the shown value without a question",
+                    !Asking(c2) && idle.StartStage == 10 && idle.ExplodedValue == ConnateTuning.StageThresholdFor(10));
+
+            // Every other row behaves as before.
+            var radialGame = Live(20, 5);
+            var c3 = Control(radialGame, "radial");
+            Press(c3, Right);
+            H.Check("RADIAL CONTROLS still applies on a d-pad step", radialGame.RadialAiming);
+            Press(c3, cross: true);
+            H.Check("RADIAL CONTROLS still cycles on Cross (wraps back)", !radialGame.RadialAiming);
+            H.Check("an ordinary row is not an action row", !Row(c3, "radial").StartsOnConfirm);
+
+            // Kabloom's starting size is an action row too: it browses, and Cross starts at the shown size.
+            var kab = (Kabloom)T_RenderArcade.Create(Kabloom.GameId);
+            var c4 = Control(kab, "start");
+            H.Check("Kabloom's row is an action row", Row(c4, "start").StartsOnConfirm);
+            Press(c4, Right); Press(c4, Right); Press(c4, Right);
+            H.Check("Kabloom's d-pad only browses (clamped), the game's size untouched",
+                    kab.StartingSize == 0 && Row(c4, "start").Selected == 2 && !Asking(c4));
+            string kabSnap = kab.Serialize();
+            string? kabSettings = kab.SerializeSettings();
+            T_Render.Call(c4, "TogglePause", true);
+            T_Render.Call(c4, "TogglePause", true);
+            H.Check("closing the menu drops the browsed size", Row(c4, "start").Selected == 0 && kab.Serialize() == kabSnap);
+
+            // Nothing live: Cross starts at the shown size without a question, and persists the size.
+            T_Render.Set(c4, "_pauseIndex", ((Array)c4.GetType().GetProperty("FixedRows", Priv)!.GetValue(c4)!).Length
+                         + Options(c4).ToList().FindIndex(o => o.Key == "start"));
+            Press(c4, Right);
+            Press(c4, cross: true);
+            H.Check("Kabloom Cross with nothing to lose starts at the shown size without asking",
+                    !Asking(c4) && kab.StartingSize == 1 && kab.CurrentLevel == Kabloom.StartLevelFor(1));
+            H.Check("only the confirmed start persisted the size", kab.SerializeSettings() != kabSettings
+                    && ArcadeStore.LoadSettings(Kabloom.GameId) == kab.SerializeSettings());
+
+            // Over a live run: the Reset-style question, at a different size and at the current one.
+            var live4 = new Kabloom();
+            T_RenderArcade.Play(live4, [new(0.4)]);
+            T_Render.Call(live4, "LoadLevel", Kabloom.StartLevelFor(0) + 1, false, false);
+            string liveSnap = live4.Serialize();
+            var c5 = Control(live4, "start");
+            Press(c5, Right);
+            Press(c5, cross: true);
+            H.Check("Kabloom Cross over a live run asks START A NEW RUN?",
+                    Asking(c5) && (string)T_Render.Get(c5, "_confirmPrompt")! == Loc.T(UiText.Arcade.StartNewRun));
+            H.Check("nothing has restarted or persisted while the question is up",
+                    live4.StartingSize == 0 && live4.Serialize() == liveSnap);
+            Answer(c5, yes: false);
+            H.Check("NO leaves the run as it was", !Asking(c5) && live4.StartingSize == 0 && live4.Serialize() == liveSnap);
+            Press(c5, cross: true);
+            Answer(c5, yes: true);
+            H.Check("YES starts a new run at the shown size",
+                    live4.StartingSize == 1 && live4.CurrentLevel == Kabloom.StartLevelFor(1));
+            T_Render.Call(live4, "LoadLevel", Kabloom.StartLevelFor(1) + 1, false, false);
+            Press(c5, cross: true);
+            H.Check("Kabloom Cross at the current size over a live run asks", Asking(c5));
+            Answer(c5, yes: true);
+            H.Check("and restarts at that size", live4.StartingSize == 1 && live4.CurrentLevel == Kabloom.StartLevelFor(1));
+        }
+        finally
+        {
+            ArcadeStore.DropCacheForHarness();
+            try { File.Delete(path); } catch { }
+            if (backedUp) { try { File.Move(backup, path); } catch { } }
+            ArcadeStore.DropCacheForHarness();
+        }
+    }
+
     /// <summary>The picker's steering state machine (<see cref="ArcadeCarouselNav"/>): one step per flick,
     /// auto-repeat while held, hysteresis on release, d-pad level identical, vertical input ignored — the
     /// contract docs/ARCADE.md ▸ The picker states. Pure Core, so it runs here without a controller.</summary>
@@ -312,11 +492,29 @@ internal static class T_Arcade
         var measure = H.StaticMethod(control, "MeasureHowTo", 3);
         if (measure is null) { H.Fail("ArcadeControl.MeasureHowTo is missing — how-to fit unchecked"); return; }
 
+        // Every shipped language: a translation runs longer than English, and the card shrinks rather than
+        // scrolls, so each language is measured against the same disc.
+        var langProp = typeof(Loc).GetProperty("Lang") ?? throw new MissingMemberException("Loc.Lang");
+        object? before = langProp.GetValue(null);
+        try
+        {
+            foreach (var lang in HelpLocalization.Languages.Where(l => !l.Code.StartsWith("qps", StringComparison.Ordinal)))
+            {
+                langProp.SetValue(null, lang.Code);
+                HowToFitsIn(measure, lang.Code);
+            }
+        }
+        finally { langProp.SetValue(null, before); }
+    }
+
+    private static void HowToFitsIn(System.Reflection.MethodInfo measure, string lang)
+    {
+        string tag = lang == HelpLocalization.DefaultCode ? "" : $" [{lang}]";
         foreach (var entry in ArcadeCatalog.Games)
         {
             IArcadeGame game = entry.Create();
             ArcadeHowTo card = game.HowTo;
-            if (card is null) { H.Skip($"{entry.Id}: how-to fits", "this game has no card"); continue; }
+            if (card is null) { H.Skip($"{entry.Id}: how-to fits{tag}", "this game has no card"); continue; }
 
             // 338 px playfield ≈ a game's disc (ArcadeTuning.GameDiscScale × the wheel's own footprint) on a
             // 1080p display, which is the small end of what ships; 1.0 pixels-per-dip keeps this independent
@@ -326,6 +524,7 @@ internal static class T_Arcade
             double top = (double)layout.GetType().GetProperty("Top").GetValue(layout);
             double bottom = (double)layout.GetType().GetProperty("Bottom").GetValue(layout);
             double half = (double)layout.GetType().GetProperty("ContentWidth").GetValue(layout) / 2;
+            double rowSize = (double)layout.GetType().GetProperty("RowSize").GetValue(layout);
 
             // The disc narrows as you leave its middle, so the block's own corners are what fail first.
             double worst = Math.Max(Math.Abs(top), Math.Abs(bottom));
@@ -335,10 +534,10 @@ internal static class T_Arcade
             // The footer ("○ BACK") is drawn at 0.72 of the radius; the block must stop above it.
             bool clearsFooter = bottom <= Field * 0.72;
 
-            H.Check($"{entry.Id}: the how-to card fits the disc", inside,
-                    $"{card.Lines.Length} bullets, block {top:0.#}..{bottom:0.#} of {Field:0} px "
+            H.Check($"{entry.Id}: the how-to card fits the disc{tag}", inside,
+                    $"{card.Lines.Length} bullets at {rowSize:0.#} px text, block {top:0.#}..{bottom:0.#} of {Field:0} px "
                     + $"— half-width {half:0.#} vs {allowed:0.#} available at the widest row");
-            H.Check($"{entry.Id}: the how-to card clears its footer", clearsFooter,
+            H.Check($"{entry.Id}: the how-to card clears its footer{tag}", clearsFooter,
                     $"block ends at {bottom:0.#}, footer starts at {Field * 0.72:0.#}");
         }
     }

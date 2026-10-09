@@ -69,7 +69,7 @@ public static class HelpContent
         new("intro", "Welcome", "What is Radiata?",
             "intro welcome about purpose design overview couch overlay start here",
             [
-                P("Radiata is a feature-rich, controller-based radial menu utility for a Windows gaming PC. Launch a game, join the Discord call, swap to headphones, start your stream, all from a controller."),
+                P("Radiata is a powerful radial menu for gaming controllers. Launch a game, join the Discord call, swap to headphones, start your stream, all from a controller."),
                 // Phrased chord-last so it stays grammatical whether {invoke} resolves to one chord or to
                 // the plural "your chosen chords" ("**X** opens a wheel" doesn't).
                 Live("Try it now: open a wheel with **{invoke}**."),
@@ -101,7 +101,7 @@ public static class HelpContent
                 B("Nothing sneaky or malicious comes with Radiata. Radiata is GPLv3 free software."),
                 B("Installing over an existing copy is an **upgrade in place**. Your wheels, settings and game art are left alone."),
                 H("Driver prompts (UAC prompts)"),
-                B("Radiata installs without admin rights; Windows asks for permission when you install the controller drivers. Leave **Install drivers (recommended)** selected and approve the Windows prompts that follow. **ViGEmBus** and **HidHide** are the open-source drivers that keep duplicate controller input out of the game. See [[input-isolation|Input isolation]]."),
+                B("Leave **Install drivers (recommended)** selected and approve any necessary Windows prompts that follow. **ViGEmBus** and **HidHide** are the open-source drivers that keep duplicate controller input out of the game. See [[input-isolation|Input isolation]]."),
                 B("**Declining is safe.** Radiata still works; games just also see your controller while a wheel is open, which is annoying. Install them later any time from **Settings ▸ Advanced ▸ Troubleshooting ▸ Install/Repair Drivers**."),
                 B("The drivers are shared system components other tools may also use, so if you uninstall Radiata, removing the drivers as well is optional."),
                 H("First run"),
@@ -253,7 +253,7 @@ public static class HelpContent
         new("arcade", "Actions", "Arcade",
             "arcade game games minigame mini-game kabloom connate petal pop twist breakout paddle brick pentagon square hexagon octagon smash win minesweeper merge bee flower bomb picker play waiting loading queue lobby kill time score",
             [
-                P("An **Arcade** slice opens a little game in a **round window, right where the wheel was**. Play a game while you wait on a loading screen or a big lobby, no alt-tabbing required."),
+                P("An **Arcade** slice opens a game right in the wheel, in an overlaid window you can quickly slide left or right to keep an eye on what's underneath. Pop it open to play a quick round without alt-tabbing out of your main game, while you wait on a patch to install, a lobby to fill up, or a loading screen to finish."),
                 B("**Arcade Launcher** opens the whole arcade. Each game is a cabinet on a round carousel with a live screenshot of where it was left. **Left/right** on the stick or D-Pad swings the next cabinet to the front, **{cross}** plays it. It **picks up where you left off** - straight back into the game you were last playing, or at the cabinets if that's where you closed it. Each game can also be directly-launched by adding a slice for it."),
                 B("**A wheel with the Arcade Launcher and nothing else** skips the wheel and goes straight to the Arcade Launcher - see [[arcade-direct-launch|Arcade direct-launch]]."),
                 B("**{circle} always backs you out**. One press closes a menu or help card, the next steps out of the game: back to the **Arcade Launcher** when that's how you got in, otherwise straight out. **The game freezes exactly as you left it**, so you can come back later and carry on. Each game stores its own state and scoreboard."),
@@ -284,10 +284,15 @@ public static class HelpContent
             ]),
 
         new("arcade-connate", "Actions", "Arcade: Connate",
-            "connate arcade merge merging numbers number cluster pile rim ring colors colours families bomb charge fire lob orb doubling",
+            "connate arcade merge merging numbers number cluster pile rim ring colors colours families bomb charge fire slam hold orb doubling garbage junk block break sweep shot clock timer deadline combo stage stages unlock unlocked start starting pause menu board clear boss crystal new best",
             [
-                B("**Connate**: Your craft rides the rim around a cluster of orbs and garbage blocks. Shoot orbs to merge the numbers before the pile grows past the inner ring. **{cross}** fires your held number into the cluster. Hold to fire with more force. Star and Star-Gap pieces merge to make orbs of 3, and matching numbers from 3 up combines their values. Only **matching colors** merge, although mixed-color orbs can be created by matching stars and gaps of opposite colors; these merge with either color or with other mixed-color orbs. Combos charge up a bomb you can fire. Bomb high-value orbs to collect them to your score."),
-                B("**Stages**: the pace follows your score. Each time your collected total crosses 100, 250, 450, 700 and 1,000, the shot clock gets a little shorter, garbage arrives a little sooner, and a bomb takes one more combo charge to fill. The current stage is shown under the score. From stage 2, every 48 seconds of play ends with 8 seconds of relief: no garbage, and a longer shot clock."),
+                B("**Connate**: Your craft rides the rim around a cluster of orbs and garbage blocks. Shoot orbs to merge the numbers before the pile grows past the inner ring. Tap **{cross}** to fire your held number into the cluster. Hold it for half a second, until a ring flashes at the orb, then release for a hard slam that shoves the pile; holding longer adds nothing. Star and Star-Gap pieces merge to make orbs of 3, and matching numbers from 3 up combines their values. Only **matching colors** merge, although mixed-color orbs can be created by matching stars and gaps of opposite colors; these merge with either color or with other mixed-color orbs. Combos charge up a bomb you can fire. Bomb high-value orbs to collect them to your score. If the pile stays pressed past the inner ring for too long, your run ends."),
+                B("**Garbage**: blocks of junk join the cluster as the run goes on, and they never merge. A merge that touches one breaks it, and breaking garbage counts toward your combo. A bomb sweeps away all of it at once."),
+                B("**The shot clock**: wait too long and the orb in your craft fires itself. A sweep closes around it through the final stretch of the countdown. Keep **{cross}** held with a full charge when the clock runs out and that shot is a slam."),
+                B("**Stages**: the pace follows your score, up to stage 20. Each time your collected total crosses a stage line (100, 250, 450, and on up to 10,000), the shot clock gets shorter, garbage arrives sooner, and a bomb takes more combo charge to fill, up to a cap. The current stage is shown under the score, and a banner announces each new one. Passing your best score partway through a run shouts NEW BEST."),
+                B("**Unlocked starts**: the first time a run reaches stage 5, 10, 15 or 20, that start is unlocked quietly, with no card. Once anything above stage 1 is unlocked, the pause menu shows **START AT STAGE** after RADIAL CONTROLS, cycling 1 and each start you have unlocked. Choosing a stage begins a new run there (if one is in progress you are asked first, as with Reset) with exactly that stage's score and pace, and that score counts toward your best. Reset and **AGAIN** always start at stage 1."),
+                B("**Earned bombs wait for your shot**: a bomb you earn does not replace the orb in your craft. It loads after that orb has fired, flies in from the charge meter, and the next orb waits behind it. The preview beside the score shows a bomb while one is waiting."),
+                B("**Clearing the board**: empty the field of every orb and garbage block and a boss block drops in. You earn one more bomb (three in all at most), the orb in your craft shatters into a bomb, and only bombs can fire until the block is broken. The shot clock, garbage and stage changes all wait. Each bomb that hits pays a share of your score so far and cracks the block, and the last one breaks it. Play resumes with your next orb and a fresh garbage block, and any stage you earned is announced then."),
                 B("Part of the [[arcade|Arcade]]."),
             ]),
 

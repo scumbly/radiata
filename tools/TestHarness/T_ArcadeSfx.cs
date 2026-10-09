@@ -72,6 +72,7 @@ internal static class T_ArcadeSfx
         H.Check("no shipped arcade WAV is unreferenced", orphans.Count == 0, string.Join(", ", orphans.Take(8)));
 
         CheckCueBits();
+        CheckConnateCues(banks);
         CheckMusic(keys);
         CheckManifestCoverage(keys);
     }
@@ -129,6 +130,54 @@ internal static class T_ArcadeSfx
             H.Check($"{game}.Cue: every cue has its own bit", shared.Count == 0 && multiBit.Count == 0,
                     string.Join(", ", shared.Concat(multiBit)));
         }
+    }
+
+    /// <summary>Every Connate cue except the silent-by-design <c>Move</c> reaches a vocabulary method in
+    /// <c>ArcadeControl.PlayConnate</c>, and that method exists on <c>ArcadeSfx.Connate</c> — a cue the
+    /// dispatcher never tests is a sound that never plays, and the sim cannot tell. Source-scanned because
+    /// the mapping is plain statements in a private method. Also pins the two deliberate sample choices:
+    /// the earned-bomb bank deliberately plays Kabloom's level-up take, and the chain layer is its
+    /// own Connate take.</summary>
+    private static void CheckConnateCues(List<object> banks)
+    {
+        var root = H.RepoRoot();
+        string path = root is null ? null : Path.Combine(root, "Arcade", "ArcadeControl.cs");
+        if (path is null || !File.Exists(path)) { H.Skip("Connate cues map to banks", "ArcadeControl.cs not found from the harness working directory"); return; }
+
+        var m = System.Text.RegularExpressions.Regex.Match(File.ReadAllText(path),
+            @"private static void PlayConnate\(Connate c, Connate\.Cue cc\)\s*\{(?<body>.*?)\r?\n    \}",
+            System.Text.RegularExpressions.RegexOptions.Singleline);
+        if (!m.Success) { H.Fail("ArcadeControl.PlayConnate is scannable", "method not found"); return; }
+        string body = m.Groups["body"].Value;
+
+        var vocab = H.AppType("ArcadeSfx").GetNestedType("Connate", BindingFlags.Public | BindingFlags.NonPublic);
+        var methods = vocab?.GetMethods(BindingFlags.Public | BindingFlags.Static).Select(x => x.Name).ToHashSet() ?? [];
+        var unmapped = new List<string>();
+        foreach (var name in Enum.GetNames(typeof(ControllerWheel.Connate.Cue)))
+        {
+            if (name is "None" or "Move") continue;
+            var call = System.Text.RegularExpressions.Regex.Match(body,
+                $@"Connate\.Cue\.{name}\)\s*!=\s*0\)\s*ArcadeSfx\.Connate\.(?<m>\w+)\(");
+            if (!call.Success || !methods.Contains(call.Groups["m"].Value)) unmapped.Add(name);
+        }
+        H.Check("every Connate cue (except Move) plays an ArcadeSfx.Connate method", unmapped.Count == 0, string.Join(", ", unmapped));
+
+        string[] TakesOf(string bankName) => banks
+            .Where(b => b.GetType().GetProperty("Name").GetValue(b) is string n && n == bankName
+                        && b.GetType().GetProperty("Family").GetValue(b).ToString() == "Connate")
+            .Select(b => (string[])b.GetType().GetProperty("Variants").GetValue(b)).FirstOrDefault() ?? [];
+        H.Check("Connate bomb-earned plays Kabloom's level-up take",
+                TakesOf("bomb-earned").SequenceEqual(new[] { "kabloom-levelup" }), string.Join(", ", TakesOf("bomb-earned")));
+        H.Check("Connate chain layer plays its own take",
+                TakesOf("chain-layer").SequenceEqual(new[] { "connate-chain-layer" }), string.Join(", ", TakesOf("chain-layer")));
+        // The chain cue is throttled at 75 ms, taken on the chain
+        // layer's bank so the plain merge blip (which shares the first take) is not throttled by it.
+        string sfxPath = Path.Combine(root, "Arcade", "ArcadeSfx.cs");
+        bool chainThrottled = File.Exists(sfxPath) && System.Text.RegularExpressions.Regex.IsMatch(File.ReadAllText(sfxPath),
+            @"public static void Chain\(int depth\)\s*\{\s*if \(Throttled\(CnChainLayer, ArcadeSfxTuning\.ChainMinIntervalMs\)\) return;");
+        H.Check("Connate chain cue is throttled at 75 ms",
+                ControllerWheel.ArcadeSfxTuning.ChainMinIntervalMs == 75 && chainThrottled,
+                $"{ControllerWheel.ArcadeSfxTuning.ChainMinIntervalMs} ms, throttled call: {chainThrottled}");
     }
 
     /// <summary>Every track a game's music bed names must be a shipped resource. A build carrying none SKIPS

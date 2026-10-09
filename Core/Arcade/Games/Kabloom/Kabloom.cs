@@ -254,7 +254,8 @@ public sealed class Kabloom : IArcadeGame
     public const int CampaignLevels = KabloomLevelProfile.TotalLevels;
 
     public IReadOnlyList<ArcadePauseOption> PauseOptions =>
-        [new("start", Loc.T(UiText.Arcade.StartingSize), [Loc.T(UiText.Arcade.Easy), Loc.T(UiText.Arcade.Medium), Loc.T(UiText.Arcade.Hard)], StartingSize)];
+        [new("start", Loc.T(UiText.Arcade.StartingSize), [Loc.T(UiText.Arcade.Easy), Loc.T(UiText.Arcade.Medium), Loc.T(UiText.Arcade.Hard)], StartingSize,
+                StartsOnConfirm: true)];
 
     /// <summary>The △ card. It teaches the rule, not the button — a button is one token and the rest of the
     /// line is what the game actually wants understood. That is what earns the card its place over a prompt
@@ -288,16 +289,13 @@ public sealed class Kabloom : IArcadeGame
         catch (NotSupportedException ex) { Trace.WriteLine($"[Arcade] Kabloom: settings snapshot unreadable: {ex.Message}"); }
     }
 
-    /// <summary>Changing the starting size starts a new campaign, so it asks first when there is a campaign to
-    /// lose. "A run in progress" is generous: any planted board, any level past the one this choice would drop
-    /// you on, or any score banked.
-    ///
-    /// <para>⚠ Re-selecting the size you already have is not a change and must never ask — the host cycles an
-    /// option row with ✕, so wrapping past the end lands back on the current value.</para></summary>
+    /// <summary>The row is an action row (<see cref="ArcadePauseOption.StartsOnConfirm"/>): ✕ starts a new campaign at
+    /// the shown size, so it asks first when there is a campaign to lose, at the current size too (still a new run).
+    /// "A run in progress" is generous: any planted board, any level past the one this size would drop you on, or any
+    /// score banked.</summary>
     public string? ConfirmPauseOption(string key, int choice)
     {
         if (!string.Equals(key, "start", StringComparison.OrdinalIgnoreCase)) return null;
-        if (Math.Clamp(choice, 0, 2) == StartingSize) return null;
         bool inProgress = Board.Phase != KabloomBoardPhase.Unplanted
                           || CurrentLevel > StartLevelFor(StartingSize)
                           || DiamondScore > 0;

@@ -51,10 +51,12 @@ public static class ConnatePhysics
     private static void Integrate(List<ConnateBody> bodies, double dt)
     {
         double damping = Math.Exp(-Math.Max(0, ConnateTuning.LinearDragPerSec) * dt);
-        double maxSpeed = Math.Max(0.1, ConnateTuning.MaxSpeedPerSec);
-        double maxSpeedSquared = maxSpeed * maxSpeed;
+        double ordinaryMax = Math.Max(0.1, ConnateTuning.MaxSpeedPerSec);
+        double chargedMax = Math.Max(ordinaryMax, ConnateTuning.ChargedMaxSpeedPerSec);
         foreach (ConnateBody body in bodies)
         {
+            double maxSpeed = body.Charged ? chargedMax : ordinaryMax;
+            double maxSpeedSquared = maxSpeed * maxSpeed;
             body.MergeLock = Math.Max(0, body.MergeLock - dt);
             body.JellyTime = Math.Max(0, body.JellyTime - dt);
             body.Age += dt;
@@ -216,7 +218,13 @@ public static class ConnatePhysics
             double closing = relativeX * nx + relativeY * ny;
             if (closing < 0)
             {
-                double impulse = -(1 + ConnateTuning.Restitution) * closing / inverseMassSum;
+                // ⚠ The flag is read and cleared in this one block, on both bodies, so the first closing contact
+                // is the only one that gets the slam bounce — the second solver pass and the second substep see
+                // plain bodies. Resting or separating overlaps never reach here and keep the flag.
+                double restitution = a.Charged || b.Charged
+                    ? ConnateTuning.ChargedImpactRestitution : ConnateTuning.Restitution;
+                a.Charged = b.Charged = false;
+                double impulse = -(1 + restitution) * closing / inverseMassSum;
                 a.VelocityX -= impulse * inverseMassA * nx; a.VelocityY -= impulse * inverseMassA * ny;
                 b.VelocityX += impulse * inverseMassB * nx; b.VelocityY += impulse * inverseMassB * ny;
             }
@@ -239,17 +247,35 @@ public static class ConnatePhysics
         }
     }
 
+    /// <summary>Whether a pending bond between <paramref name="a"/> and <paramref name="b"/> is still a legal
+    /// merge: neither is garbage, the pair is arithmetically and family compatible, and the bond's recorded
+    /// result is the rank that pair actually produces (which also keeps the result's family derivable and
+    /// the rank on the ladder). Checked every substep and on every restored bond; reservation uniqueness is the
+    /// caller's, since it needs the whole list.</summary>
+    public static bool IsMergeValid(ConnatePendingMerge bond, ConnateBody a, ConnateBody b) =>
+        a.Id != b.Id && !a.IsGarbage && !b.IsGarbage
+        && ConnateRules.Compatible(a.Rank, a.Hue, b.Rank, b.Hue)
+        && ConnateRules.MergeResultRank(a.Rank, b.Rank) == bond.ResultRank;
+
     private static void UpdatePendingMerges(List<ConnateBody> bodies, List<ConnatePendingMerge> pending,
                                             IEnumerable<Candidate> source, double dt)
     {
         var byId = bodies.ToDictionary(body => body.Id);
         // A reserved bond survives small collision separation, but is cancelled if either endpoint disappears,
-        // becomes illegal, or is pulled materially apart before its anticipation timer matures.
-        pending.RemoveAll(bond => !byId.TryGetValue(bond.AId, out ConnateBody? a)
-                                  || !byId.TryGetValue(bond.BId, out ConnateBody? b)
-                                  || a.IsGarbage || b.IsGarbage
-                                  || !ConnateRules.Compatible(a.Rank, a.Hue, b.Rank, b.Hue)
-                                  || Distance(a, b) > (a.Radius + b.Radius) * 1.40);
+        // is not a legal merge (result, family, garbage), is pulled materially apart before its
+        // anticipation timer matures, or claims a body an earlier bond already holds.
+        var claimed = new HashSet<long>();
+        pending.RemoveAll(bond =>
+        {
+            if (bond.AId == bond.BId
+                || !byId.TryGetValue(bond.AId, out ConnateBody? a)
+                || !byId.TryGetValue(bond.BId, out ConnateBody? b)
+                || !IsMergeValid(bond, a, b)
+                || Distance(a, b) > (a.Radius + b.Radius) * 1.40) return true;
+            if (claimed.Contains(bond.AId) || claimed.Contains(bond.BId)) return true;
+            claimed.Add(bond.AId); claimed.Add(bond.BId);
+            return false;
+        });
 
         // Deepest penetration wins, then IDs break ties. One body can belong to only one bond at a time.
         var reserved = pending.SelectMany(bond => new[] { bond.AId, bond.BId }).ToHashSet();

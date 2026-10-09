@@ -93,7 +93,8 @@ Any action may also set:
   editor and the in-wheel Add picker turn it on for new `exit-app` slices and for a `system` command of
   `sleep`, `reboot`, `shutdown`, `logout`, `hibernate`, or `empty-recycle-bin`; a hand-written slice
   defaults to off.
-  (In edit mode a guarded slice arms like any other; the dwell only applies to real firing.)
+  (In edit mode a guarded slice arms like any other; the dwell only applies to real firing. A mouse click on
+  an open wheel never fires a guarded slice; Settings' **Test Action** button runs the slice directly.)
 
 ### Discord RPC setup (`discord-join`, `discord-deafen`)
 
@@ -344,7 +345,9 @@ Out-of-range values are clamped and traced rather than rejected: `fadeMs` 0-2,00
 `obsPort` 1-65535, `narrationVolume` 0-100. An unknown `language` becomes `"en"`,
 `sliceMaterial` is canonicalised (see above), and `showSliceLabels` falls back to its
 default. Null entries in a wheel are dropped, a wheel is trimmed to its first 32 slices, a slice label is cut
-to 200 characters, and `safeModeApps` entries with a blank `path` are dropped. The slice-thickness rule
+to 200 characters, and `safeModeApps` entries with a blank `path` are dropped. An explicit `null` for
+`triggerModes`, `disabledStorefronts`, `knownControllerKinds` or `safeModeApps` loads as an empty collection.
+The slice-thickness rule
 (`sliceThickness` / `thickAutoDemoted`) is applied against the loaded slice counts. If the file can't be
 parsed at all, it is copied aside, the last good copy is loaded when one exists (otherwise the defaults),
 and nothing is overwritten until the next save.

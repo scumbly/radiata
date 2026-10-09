@@ -25,7 +25,7 @@
        Assembly/FileVersion stay numerically valid (<Major>.<Minor>.<build>.0). -->
   <PropertyGroup>
     <ReleaseMajor>0</ReleaseMajor>
-    <ReleaseMinor>17</ReleaseMinor>
+    <ReleaseMinor>18</ReleaseMinor>
   </PropertyGroup>
   <PropertyGroup Condition="'$(RadiataPublic)' == 'true'">
     <!-- RadiataPublic defaults to true (Directory.Build.props). The public flavour compiles the arcade's dev switches out (Core/Arcade/ArcadeDebug.cs). -->

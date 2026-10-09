@@ -41,7 +41,9 @@ the primary display. Multi-monitor setups should make the gaming display the Win
 - Either stick aims, and the more-deflected one wins. `system.wheelIgnoresOppositeStick` confines aiming to
   the wheel's own side, so resting drift on the second stick cannot arm a slice unaided.
 - `system.stickyMs` is the grace window after the stick recentres in which a release still fires.
-- A guarded slice (`requireConfirm`) fires after an 800 ms dwell with a fill ring instead of on release.
+- A guarded slice (`requireConfirm`) fires after an 800 ms dwell with a fill ring instead of on release. A mouse
+  click never fires one. A completed dwell belongs to its action: if a config reload puts a different action in
+  that slot, the dwell is cleared and a fresh hold is needed.
 - Hard cap of 12 slices per wheel (`SystemConfig.MaxSlicesPerWheel`); `ConfigLoader` trims a hand-edited file
   to 32. `SliceThicknessRule` moves both wheels from Thick to Medium past 8 slices and restores Thick when
   they shrink, on the config read path and on every wheel-write path.

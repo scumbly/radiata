@@ -61,8 +61,18 @@ ExceptionsEditor.ApplyTo( SystemEditor.ApplyTo( CustomizeEditor.ApplyTo(_systemB
 2. **The baseline can go stale.** A live change made while the window is open can be reverted by a save that
    layers `ApplyTo` onto the window-open snapshot, so `Save` rebuilds the baseline from the live config.
 3. **A hot reload refreshes the open controls.** `OnConfigReloadedExternal` layers the `ApplyTo` chain onto the
-   reloaded config; if it differs, `LoadSystemTabs` reloads the controls. Every tab's `Load` is guarded by
-   `_loading`, so a refresh raises no `Changed` and writes nothing.
+   reloaded config; if it differs, or an editor's `ChangedOutside` reports a mirrored field (rule 4),
+   `LoadSystemTabs` reloads the controls. Every tab's `Load` is guarded by `_loading`, so a refresh raises no
+   `Changed` and writes nothing.
+4. **A control that mirrors a field something outside Settings also writes sends it only when the user moved
+   it.** The Passthru Mode checkbox shares `captureSafeMode` with the tray item, and the Advanced and Customize
+   tabs share language, the crash-reporting choices, narration, the SteamGridDB key, the summon gesture, the
+   material, thickness and sound picks with the setup wizard, the crash window and the open wheel. Each editor
+   registers such a field once with `MirroredFields` (`Core/MirroredFields.cs`) and builds `ApplyTo` on
+   `_mirror.ApplyTo(cfg)`, which writes a field only when its control now reports something other than it
+   did at the last `Load` or save. `SettingsWindow.Save` calls each editor's `NoteSaved`, and the hot-reload
+   check asks each editor's `ChangedOutside`. When the user and an outside writer both changed a field before
+   the save, the user's value wins.
 
 A deliberate action-type change clears every payload field ([ACTIONS.md](ACTIONS.md)).
 

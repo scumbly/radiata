@@ -22,13 +22,21 @@ public partial class ExceptionsEditorControl : UserControl
     private void LearnMore_Click(object sender, RoutedEventArgs e) => HelpRequested?.Invoke("passthru-mode");
 
     private bool _loading;
+    // The tray toggles CaptureSafeMode while Settings is open, so the checkbox writes it only when the user
+    // moved it (docs/SETTINGS-UI.md, the mirrored-controls rule).
+    private readonly MirroredFields _mirror;
     private readonly List<SafeModeApp> _apps = new();
     private bool _gamesLoaded;
 
     /// <summary>One installed-games dropdown row (a real game, or the non-selectable prompt at index 0).</summary>
     private sealed record GamePick(string Display, InstalledGame? Game);
 
-    public ExceptionsEditorControl() => InitializeComponent();
+    public ExceptionsEditorControl()
+    {
+        InitializeComponent();
+        _mirror = new MirroredFields().Add("captureSafeMode",
+            c => c.CaptureSafeMode, () => SafeModeBox.IsChecked == true, (c, v) => c with { CaptureSafeMode = v });
+    }
 
     public void Load(SystemConfig cfg)
     {
@@ -37,6 +45,7 @@ public partial class ExceptionsEditorControl : UserControl
         _apps.Clear();
         _apps.AddRange(cfg.SafeModeApps);
         RebuildList();
+        _mirror.Capture(cfg);
         _loading = false;
         LoadGamesDropdown();   // idempotent — scans installed games once, off-thread
     }
@@ -103,12 +112,20 @@ public partial class ExceptionsEditorControl : UserControl
     }
 
     /// <summary>Fold this tab's fields into <paramref name="cfg"/> (a `with` copy — untouched fields pass
-    /// through, same contract as the Customize/Advanced tabs).</summary>
-    public SystemConfig ApplyTo(SystemConfig cfg) => cfg with
+    /// through, same contract as the Customize/Advanced tabs). The Passthru Mode checkbox is written only
+    /// when the user moved it.</summary>
+    public SystemConfig ApplyTo(SystemConfig cfg) => _mirror.ApplyTo(cfg) with
     {
-        CaptureSafeMode = SafeModeBox.IsChecked == true,
-        SafeModeApps    = new List<SafeModeApp>(_apps),
+        SafeModeApps = new List<SafeModeApp>(_apps),
     };
+
+    /// <summary>True when the config's Passthru Mode state moved away from what the checkbox last showed, i.e.
+    /// a change made elsewhere (the tray item). <see cref="ApplyTo"/> alone cannot report this, because it
+    /// keeps the config's value for a box the user has not touched.</summary>
+    public bool ChangedOutside(SystemConfig cfg) => _mirror.ChangedOutside(cfg);
+
+    /// <summary>A save just wrote <paramref name="saved"/>.</summary>
+    public void NoteSaved(SystemConfig saved) => _mirror.NoteSaved(saved);
 
     // ── Exceptions list ─────────────────────────────────────────────────────────
 

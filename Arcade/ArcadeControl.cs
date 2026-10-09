@@ -152,6 +152,11 @@ internal sealed class ArcadeControl : FrameworkElement
     private int     _confirmChoice;
     private bool    _confirmYes;   // the highlighted answer; lands on NO
 
+    // The value an action row (ArcadePauseOption.StartsOnConfirm) is browsed to. Only d-pad steps write it; ✕ hands it
+    // to the game, and anything that closes the menu drops it, so the row reopens on the game's own value.
+    private string? _browseKey;
+    private int     _browseChoice;
+
     // Guard card state.
     private Arcade.GuardCopy? _guard;
     private bool   _guardOverridable;
@@ -343,6 +348,7 @@ internal sealed class ArcadeControl : FrameworkElement
         // Land on Resume, never on Reset: the most likely intent, and the destructive row should never be
         // one careless ✕ away from where the cursor starts.
         _pauseIndex = 0;
+        _browseKey = null;
         // START while a prompt is up is a way out of it, and an unanswered question must never survive to the
         // next pause — it would reappear over a board the player has since changed their mind about.
         _confirmPrompt = null;
@@ -360,7 +366,9 @@ internal sealed class ArcadeControl : FrameworkElement
     {
         get
         {
-            var own = _game?.PauseOptions ?? [];
+            var own = (_game?.PauseOptions ?? [])
+                .Select(o => o.StartsOnConfirm && _browseKey == o.Key
+                    ? o with { Selected = Math.Clamp(_browseChoice, 0, o.Choices.Length - 1) } : o).ToList();
             if (_game is null || !ArcadeMusic.HasBed(_game.Id)) return own;
             var row = new ArcadePauseOption(MusicKey, Loc.T(UiText.Arcade.Music),
                                             [Loc.T(UiText.Arcade.Off), Loc.T(UiText.Arcade.On)], _musicOn ? 1 : 0);
@@ -491,7 +499,7 @@ internal sealed class ArcadeControl : FrameworkElement
         {
             if (!_confirmYes) ArcadeSfx.Chrome.ConfirmNo();
             else if (_confirmKey == ResetKey) { ArcadeSfx.Chrome.Reset(); RestartLiveGame(); _confirmPrompt = null; TogglePause(quiet: true); }
-            else { _game!.ApplyPauseOption(_confirmKey, _confirmChoice); Persist(); ArcadeSfx.Chrome.ConfirmYes(); }
+            else { _game!.ApplyPauseOption(_confirmKey, _confirmChoice); _browseKey = null; Persist(); ArcadeSfx.Chrome.ConfirmYes(); }
             _confirmPrompt = null;
         }
 
@@ -533,7 +541,12 @@ internal sealed class ArcadeControl : FrameworkElement
         {
             ArcadePauseOption option = options[_pauseIndex - fixedRows.Length];
             int next = Math.Clamp(option.Selected + step, 0, option.Choices.Length - 1);
-            if (next != option.Selected && RequestPauseOption(option.Key, next))
+            if (option.StartsOnConfirm)
+            {
+                // Browsing only: nothing is asked and nothing restarts until ✕.
+                if (next != option.Selected) { _browseKey = option.Key; _browseChoice = next; ArcadeSfx.Chrome.PauseNav(); }
+            }
+            else if (next != option.Selected && RequestPauseOption(option.Key, next))
             {
                 // The prompt owns the frame from here — consume the edges so the ✕ that is still down (or the
                 // next d-pad tap) can't answer a question that only just appeared.
@@ -567,9 +580,13 @@ internal sealed class ArcadeControl : FrameworkElement
             }
             else
             {
-                // ✕ on an option row cycles it, so the menu is usable without discovering left/right.
+                // ✕ on an option row cycles it, so the menu is usable without discovering left/right. An action row
+                // starts instead, at the browsed value.
                 ArcadePauseOption option = options[_pauseIndex - fixedRows.Length];
-                if (RequestPauseOption(option.Key, (option.Selected + 1) % option.Choices.Length))
+                int target = option.StartsOnConfirm ? option.Selected : (option.Selected + 1) % option.Choices.Length;
+                bool parked = RequestPauseOption(option.Key, target);
+                if (option.StartsOnConfirm && !parked) _browseKey = null;
+                if (parked)
                 {
                     _crossEdge = _triangleEdge = _squareEdge = _skipEdge = false;
                     _dpadEdges = ArcadeInput.DPad.None;
@@ -644,6 +661,7 @@ internal sealed class ArcadeControl : FrameworkElement
         _paused = false;
         _howTo = false;
         _pauseIndex = 0;
+        _browseKey = null;
         _confirmPrompt = null;
         SettleOutcome();
         CaptureShot();   // before Release: a script game's buffer lives in its session
@@ -713,6 +731,7 @@ internal sealed class ArcadeControl : FrameworkElement
         _crossEdge = _triangleEdge = _squareEdge = _skipEdge = false;
         _dpadHeld = _dpadEdges = ArcadeInput.DPad.None;
         _stickHeld = ArcadeInput.DPad.None;
+        _game?.CancelInput();
     }
 
     // ── Input funnel (called from App's controller handlers) ───────────────────
@@ -958,7 +977,14 @@ internal sealed class ArcadeControl : FrameworkElement
         switch (_game)
         {
             case Kabloom k:          PlayKabloom(k, k.TakeCues()); break;
-            case Connate c:          PlayConnate(c, c.TakeCues()); break;
+            case Connate c:
+            {
+                PlayConnate(c, c.TakeCues());
+                // An unlock is a fact about the player, not the run: written now, like the how-to flag, so a hard
+                // kill before the next dismiss cannot take it back.
+                if (c.TakeSettingsDirty()) Persist();
+                break;
+            }
             case PetalPop p:         PlayPetalPop(p, p.TakeCues()); break;
             case Internode f:        PlayInternode(f, f.TakeCues()); break;
             case ScriptArcadeGame s:
@@ -1460,7 +1486,9 @@ internal sealed class ArcadeControl : FrameworkElement
         int sel = Math.Clamp(option.Selected, 0, last);
         string left  = sel > 0    ? "‹ " : "  ";
         string right = sel < last ? " ›" : "  ";
-        return $"{option.Label}   {left}{option.Choices[sel]}{right}";
+        // An action row leads with the ✕ glyph: ✕ starts it, where on every other row it only cycles.
+        string lead = option.StartsOnConfirm ? $"{ControllerButtons.Text(PadButton.Cross)} " : "";
+        return $"{lead}{option.Label}   {left}{option.Choices[sel]}{right}";
     }
 
     /// <summary>The confirm prompt, INSTEAD of the menu rows rather than over them.

@@ -1,4 +1,4 @@
-# Build + the two desk gates, on every push and pull request. Nothing here publishes anything.
+# Build + the two desk gates, on every push and pull request, and when release.yml calls it. Nothing here publishes anything.
 #
 # `TestHarness all` is the default suite (pure Core + read-only source scans; the driver-writing suites are
 # opt-in and not in `all`). SettingsSmokeProbe constructs the Settings editors for real — the class of
@@ -10,6 +10,8 @@ on:
   push:
     branches: ['**']
   pull_request:
+  # Called by release.yml, so a release runs this suite on the commit it builds.
+  workflow_call:
 
 permissions:
   contents: read

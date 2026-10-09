@@ -83,24 +83,33 @@ public static class HelpHtmlExport
     {
         ["en"] = new("Help", "Radiata Help",
             "Every topic from the app's <strong>Settings ▸ Help</strong> tab.",
-            "Every Help topic from Radiata, the controller-first command center for Windows.",
+            "Every Help topic from Radiata, the powerful radial menu for gaming controllers.",
             "Site", "Download", "Help", "Donate ♥", "Language", "Home"),
         ["es"] = new("Ayuda", "Ayuda de Radiata",
             "Todos los temas de la pestaña <strong>Ajustes ▸ Ayuda</strong> de la aplicación.",
-            "Todos los temas de ayuda de Radiata, el centro de comandos para Windows que se maneja con el mando.",
+            "Todos los temas de ayuda de Radiata, el potente menú radial para mandos de juego.",
             "Sitio", "Descargar", "Ayuda", "Donar ♥", "Idioma", "Inicio"),
         ["de"] = new("Hilfe", "Radiata-Hilfe",
             "Alle Themen aus dem Tab <strong>Einstellungen ▸ Hilfe</strong> der App.",
-            "Alle Hilfethemen von Radiata, der Controller-first-Kommandozentrale für Windows.",
+            "Alle Hilfethemen von Radiata, dem leistungsstarken Radialmenü für Gamecontroller.",
             "Website", "Download", "Hilfe", "Spenden ♥", "Sprache", "Startseite"),
         ["ja"] = new("ヘルプ", "Radiata ヘルプ",
             "アプリの <strong>設定 ▸ ヘルプ</strong> タブにあるすべての項目。",
-            "Windows 向けのコントローラー優先コマンドセンター Radiata の、すべてのヘルプ項目。",
+            "ゲームコントローラー向けの強力なラジアルメニュー Radiata の、すべてのヘルプ項目。",
             "サイト", "ダウンロード", "ヘルプ", "寄付 ♥", "言語", "ホーム"),
         ["ar"] = new("المساعدة", "مساعدة Radiata",
             "كل المواضيع من تبويب <strong>الإعدادات ◂ المساعدة</strong> في التطبيق.",
-            "كل مواضيع مساعدة Radiata، مركز الأوامر لنظام Windows الذي يُدار بوحدة التحكم أولًا.",
+            "كل مواضيع مساعدة Radiata، القائمة الدائرية القوية لوحدات التحكم في الألعاب.",
             "الموقع", "تنزيل", "المساعدة", "تبرّع ♥", "اللغة", "الصفحة الرئيسية"),
+    };
+
+    /// <summary>The overview video embedded under the intro topic's opening paragraph, and its iframe title per
+    /// language. youtube-nocookie keeps the embed from setting cookies until the reader presses play.</summary>
+    private const string IntroVideoId = "U_yRv8BtqE0";
+    private static readonly Dictionary<string, string> IntroVideoTitle = new(StringComparer.Ordinal)
+    {
+        ["en"] = "Radiata overview video", ["es"] = "Vídeo de presentación de Radiata", ["de"] = "Radiata-Übersichtsvideo",
+        ["ja"] = "Radiata 紹介動画", ["ar"] = "فيديو تعريفي بـ Radiata",
     };
 
     /// <summary>The Workshop nav label per language. The /workshop/ pages document the package features
@@ -232,6 +241,12 @@ public static class HelpHtmlExport
         return ForWeb(sb.ToString());
     }
 
+    private static string IntroVideo(string code)
+    {
+        var title = IntroVideoTitle.TryGetValue(code, out var v) ? v : IntroVideoTitle[HelpLocalization.DefaultCode];
+        return $"    <div class=\"video\"><iframe src=\"https://www.youtube-nocookie.com/embed/{IntroVideoId}\" title=\"{Esc(title)}\" loading=\"lazy\" allow=\"accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share\" referrerpolicy=\"strict-origin-when-cross-origin\" allowfullscreen></iframe></div>\n";
+    }
+
     /// <summary>A topic's blocks. A run of bullets becomes one real list, nested by <c>Indent</c> — a
     /// deeper bullet's list opens inside its parent's <c>&lt;li&gt;</c>, which is the only nesting HTML
     /// actually defines (a bare <c>&lt;ul&gt;</c> inside a <c>&lt;ul&gt;</c> renders but doesn't parse as a
@@ -248,6 +263,7 @@ public static class HelpHtmlExport
             run.Clear();
         }
 
+        bool videoPending = t.Id == "intro";
         foreach (var b in t.Body)
         {
             if (b.LiveOnly) continue;   // describes the reader's own bindings — see the class remarks
@@ -257,7 +273,9 @@ public static class HelpHtmlExport
 
             switch (b.Kind)
             {
-                case HelpBlockKind.Para:    sb.AppendLine($"    <p>{html}</p>"); break;
+                case HelpBlockKind.Para:    sb.AppendLine($"    <p>{html}</p>");
+                    if (videoPending) { sb.Append(IntroVideo(code)); videoPending = false; }
+                    break;
                 case HelpBlockKind.Heading: sb.AppendLine($"    <h3>{html}</h3>"); break;
                 case HelpBlockKind.Tip:     sb.AppendLine($"    <p class=\"note tip\">{html}</p>"); break;
                 case HelpBlockKind.Warning: sb.AppendLine($"    <p class=\"note warn\">{html}</p>"); break;
@@ -623,14 +641,17 @@ public static class HelpHtmlExport
         /* The page background wheel belongs to the marketing page; a long reference page with a sticky
            sidebar scrolls past it, so it's suppressed here rather than tiled behind the text. */
         body.helppage::after{display:none}
-        .helphead{background:#eceef2;border-bottom:1px solid var(--line,#e6e7ec);padding:26px 0 22px}
-        .helphead .row{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
-        .helphead img{width:44px;height:44px;flex:0 0 auto}
-        .helphead h1{margin:0;font-size:clamp(22px,3.2vw,30px);letter-spacing:-.02em;color:var(--navy,#3D405B)}
+        .helphead{background:#eceef2;border-bottom:1px solid var(--line,#e6e7ec);padding:26px 0 22px;
+          min-height:330px;display:flex;align-items:center;justify-content:center}
+        .helphead .wrap{width:100%}
+        .helphead .row{display:flex;flex-direction:column;align-items:center;text-align:center;gap:10px}
+        .helphead img{width:72px;height:72px;flex:0 0 auto}
+        .helphead h1{margin:0;font-size:clamp(28px,4.4vw,42px);letter-spacing:-.02em;color:var(--navy,#3D405B)}
         .helphead p{margin:2px 0 0;color:var(--muted,#6b6f7d);font-size:13.5px}
-        .searchrow{margin-top:16px}
-        .searchrow input{width:100%;max-width:420px;font:inherit;font-size:14.5px;padding:9px 13px;
-          border:1px solid var(--line,#e6e7ec);border-radius:10px;background:#fff;color:inherit}
+        .searchrow{margin-top:22px;display:flex;justify-content:center}
+        .searchrow input{width:100%;max-width:580px;font:inherit;font-size:16px;padding:13px 22px;
+          border:1px solid var(--line,#e6e7ec);border-radius:999px;background:#fff;color:inherit;
+          box-shadow:0 2px 8px -2px rgba(61,64,91,.18)}
         .searchrow input:focus{outline:2px solid var(--accent,#E07A5F);outline-offset:1px;border-color:transparent}
 
         .helpwrap{max-width:1180px;margin:0 auto;padding:0 24px;display:grid;
@@ -673,6 +694,10 @@ public static class HelpHtmlExport
         svg.fig{max-width:100%;height:auto;display:block;margin:0 auto}
         figcaption{margin-top:8px;color:var(--muted,#6b6f7d);font-size:13.5px;font-style:italic}
 
+        .video{position:relative;aspect-ratio:16/9;margin:0 0 16px;border-radius:12px;overflow:hidden;background:#000;
+          box-shadow:0 14px 34px -10px rgba(61,64,91,.28),0 3px 8px -3px rgba(61,64,91,.16)}
+        .video iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
+
         @media (max-width:900px){
           .helpwrap{grid-template-columns:1fr;gap:0}
           .toc{position:static;max-height:none;padding-bottom:10px;
@@ -707,11 +732,11 @@ public static class HelpHtmlExport
         return sb.ToString();
     }
 
-    /// <summary>Identical to every other page's footer; the GitHub link is the profile, not the repo.</summary>
+    /// <summary>Identical to every other page's footer; the GitHub link is the repo.</summary>
     private static string Footer(string code) => $"""
         <footer><div class="wrap"><div class="row">
-          <span>&copy; 2026 Jesse Tarter-Holden</span>
-          <span><a href="{SiteHref("", code)}">{Esc(ChromeFor(code).FooterHome)}</a> &middot; <a href="https://github.com/scumbly">GitHub</a></span>
+          <span>&copy; 2026 Jesse Holden</span>
+          <span><a href="{SiteHref("", code)}">{Esc(ChromeFor(code).FooterHome)}</a> &middot; <a href="https://github.com/scumbly/radiata">GitHub</a></span>
         </div></div></footer>
         """ + "\n";
 

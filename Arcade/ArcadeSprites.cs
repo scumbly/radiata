@@ -169,6 +169,11 @@ internal static class ArcadeSprites
         public const string ConnateBomb    = "connate-bomb";
         /// <summary>Clipped to the lump's own silhouette, which is also its collider.</summary>
         public const string ConnateGarbage = "connate-garbage";
+        /// <summary>The boss block a cleared board drops in. A garbage lump at 1:1 centred in a canvas with a
+        /// margin all round for the crystals jutting out of it (704 px for the lump's 512), drawn so the lump
+        /// matches an ordinary garbage blob of the same radius. Turns with the block; not clipped. Without it
+        /// the encounter draws the vector lump with gold crystal shards.</summary>
+        public const string ConnateBossBlock = "connate-boss-block";
 
         /// <summary>The whole playfield ground — outfield, rim band and well — as one picture, clipped to the
         /// field disc and drawn under everything. Replaces the vector ground fills only; every rule ring and

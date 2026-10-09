@@ -42,6 +42,7 @@ public sealed class WheelStateMachine
     private float _smoothX, _smoothY;    // EMA-filtered stick for rendering + arming
 
     private int    _confirmIndex = -1;   // slice currently being held to confirm
+    private WheelSlice? _confirmSlice;   // the slice object that dwell started on (compared on a list swap)
     private double _confirmProgress;     // 0..1 dwell fill
     private bool   _confirmDone;         // dwell complete → release will fire (does not auto-fire)
 
@@ -92,8 +93,25 @@ public sealed class WheelStateMachine
     private long       _landingStart;
 
     // ── Configuration ──────────────────────────────────────────────────────────
-    public IReadOnlyList<WheelSlice> Slices { get => _slices; set => _slices = value ?? []; }
+    public IReadOnlyList<WheelSlice> Slices
+    {
+        get => _slices;
+        set { _slices = value ?? []; DropStaleConfirm(); }
+    }
     public int  SliceCount => _slices.Count;
+
+    /// <summary>A hold-to-confirm dwell belongs to the ACTION it was held on, not to the slot number. After
+    /// a list swap, a dwell whose slot now holds a different action (or nothing) is cleared, so a completed
+    /// confirmation can never be released onto something the user didn't hold.</summary>
+    private void DropStaleConfirm()
+    {
+        if (_confirmIndex < 0) return;
+        bool same = (uint)_confirmIndex < (uint)_slices.Count && _confirmSlice is { } held
+            && (ReferenceEquals(held, _slices[_confirmIndex])
+                || SliceIdentity.Key(held) == SliceIdentity.Key(_slices[_confirmIndex]));
+        if (same) return;
+        _confirmIndex = -1; _confirmProgress = 0; _confirmDone = false; _confirmSlice = null;
+    }
 
     /// <summary>When true, UpdateStick records the stick position but does not recompute the armed index.</summary>
     public bool FreezeArmed { get; set; }
@@ -524,7 +542,7 @@ public sealed class WheelStateMachine
 
         if (armed >= 0 && RequiresConfirm(armed))
         {
-            if (_confirmIndex != armed) { _confirmIndex = armed; _confirmProgress = 0; _confirmDone = false; }
+            if (_confirmIndex != armed) { _confirmIndex = armed; _confirmSlice = _slices[armed]; _confirmProgress = 0; _confirmDone = false; }
             if (!_confirmDone)
             {
                 // In normal mode reaching 1.0 only UNLOCKS the slice (fires on Fn release —

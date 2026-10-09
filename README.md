@@ -16,7 +16,7 @@
   <img src="https://getradiata.app/assets/screenshots/radiata-main.webp" alt="A Radiata wheel open over the desktop beside the Settings window" width="800">
 </p>
 
-Radiata is a feature-rich, controller-based radial menu utility for a Windows gaming PC.
+Radiata is a powerful radial menu for gaming controllers.
 
 ### Support Radiata
 

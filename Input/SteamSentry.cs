@@ -334,6 +334,11 @@ internal static class SteamRestartFlag
 {
     private static string Path_ => Path.Combine(AppPaths.AppDataDir, "pending-steam-restart.txt");
 
+    /// <summary>How long an armed marker stays honourable, measured from its write time. Comfortably longer
+    /// than a silent install plus the relaunch; an older marker is the leftover of an update that never
+    /// completed, and is deleted unread rather than bouncing Steam on some unrelated launch.</summary>
+    internal static readonly TimeSpan MaxAge = TimeSpan.FromMinutes(30);
+
     public static void Arm()
     {
         try
@@ -345,13 +350,32 @@ internal static class SteamRestartFlag
         catch (Exception ex) { Trace.WriteLine($"[Sentry] couldn't arm the Steam restart: {ex.Message}"); }
     }
 
-    /// <summary>True exactly once per armed request; clears the marker as it reports.</summary>
+    /// <summary>Withdraws an armed request: the update it was armed for did not start.</summary>
+    public static void Disarm()
+    {
+        try
+        {
+            if (!File.Exists(Path_)) return;
+            File.Delete(Path_);
+            Trace.WriteLine("[Sentry] Steam restart disarmed - the update did not start");
+        }
+        catch (Exception ex) { Trace.WriteLine($"[Sentry] couldn't disarm the Steam restart: {ex.Message}"); }
+    }
+
+    /// <summary>True exactly once per armed request; clears the marker as it reports. A marker older than
+    /// <see cref="MaxAge"/> is cleared and NOT honoured.</summary>
     public static bool Consume()
     {
         try
         {
             if (!File.Exists(Path_)) return false;
+            var age = DateTime.UtcNow - File.GetLastWriteTimeUtc(Path_);
             File.Delete(Path_);
+            if (age > MaxAge)
+            {
+                Trace.WriteLine($"[Sentry] discarding a stale Steam restart marker ({age.TotalMinutes:F0} min old, limit {MaxAge.TotalMinutes:F0})");
+                return false;
+            }
             Trace.WriteLine("[Sentry] consuming the armed post-update Steam restart");
             return true;
         }

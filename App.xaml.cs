@@ -684,6 +684,13 @@ public partial class App : Application
             if (Editing || _browserOpen || _arcadeOpen) return;
             if (!_overlayVisible || _activeSlices is null || (uint)idx >= (uint)_activeSlices.Length) return;
             var slice = _activeSlices[idx];
+            // A mouse click has no hold dwell, so a hold-to-confirm slice never fires from one — the
+            // controller hold is its only route (same predicate as the release path and the dwell).
+            if (slice.Action?.RequireConfirm == true)
+            {
+                Trace.WriteLine($"[Wheel] mouse click ignored on \"{slice.Label}\" — it's a hold-to-confirm slice");
+                return;
+            }
             // Fire AFTER the mouse-click event finishes; FireAction handles dismissal (and the
             // lingering readout for toggle actions).
             Dispatcher.BeginInvoke(new Action(() => FireAction(slice)));

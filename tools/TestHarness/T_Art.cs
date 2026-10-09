@@ -45,6 +45,7 @@ internal static class T_Art
         NormalizeTitleMatching();
         MimesFilter();
         CuratedHideLogo();
+        CoverResetKeepsPersonalization();
         LogoFingerprint();
         LiveResolution().GetAwaiter().GetResult();
     }
@@ -101,6 +102,65 @@ internal static class T_Art
                 CachePath(game, original[0]) == CachePath(game, reranked[1]));
     }
 
+    /// <summary>Resetting covers drops a pick record only when nothing else is stored on it. Runs against the
+    /// harness's isolated application-data folder, with the in-memory pick table cleared before and after.</summary>
+    private static void CoverResetKeepsPersonalization()
+    {
+        var table = H.StaticField(GM, "_overrides") ?? throw new MissingFieldException("GameMetadata._overrides");
+        int Count() => table.GetValue(null) is System.Collections.IDictionary d ? d.Count : 0;
+        void Fresh()
+        {
+            table.SetValue(null, null);
+            var file = (string)H.GetStatic(GM, "OverridePath");
+            if (File.Exists(file)) File.Delete(file);
+        }
+        void Call(string name, params object[] args) => H.InvokeStatic(GM, name, args);
+        bool Get(string name, InstalledGame g) => (bool)H.InvokeStatic(GM, name, g);
+
+        var fav  = new InstalledGame("Reset Test Favorite", "steam://rungameid/990001", "Steam");
+        var hid  = new InstalledGame("Reset Test Hidden",   "steam://rungameid/990002", "Steam");
+        var rec  = new InstalledGame("Reset Test Recent",   "steam://rungameid/990003", "Steam");
+        var bare = new InstalledGame("Reset Test Bare",     "steam://rungameid/990004", "Steam");
+
+        H.Try("ClearCoverPath keeps favorite / hidden / last-launched and prunes an all-default pick", () =>
+        {
+            Fresh();
+            try
+            {
+                Call("SetCoverPath", fav, "a.png"); Call("SetFavorite", fav, true);
+                Call("SetCoverPath", hid, "b.png"); Call("SetHidden", hid, true);
+                Call("SetCoverPath", rec, "c.png"); Call("MarkLaunched", rec);
+                Call("SetCoverPath", bare, "d.png");
+                Call("ClearCoverPath", fav); Call("ClearCoverPath", hid);
+                Call("ClearCoverPath", rec); Call("ClearCoverPath", bare);
+
+                H.Check("favorite survives", Get("IsFavorite", fav));
+                H.Check("hidden survives", Get("IsHidden", hid));
+                H.Check("last-launched survives", (long)H.InvokeStatic(GM, "LastLaunchedTicks", rec) > 0);
+                H.Check("three records remain; the all-default one is pruned", Count() == 3, $"count={Count()}");
+            }
+            finally { Fresh(); }
+        });
+
+        H.Try("ClearAllCoverPaths keeps favorite / hidden / last-launched and prunes an all-default pick", () =>
+        {
+            Fresh();
+            try
+            {
+                Call("SetCoverPath", fav, "a.png"); Call("SetFavorite", fav, true);
+                Call("SetCoverPath", hid, "b.png"); Call("SetHidden", hid, true);
+                Call("SetCoverPath", rec, "c.png"); Call("MarkLaunched", rec);
+                Call("SetCoverPath", bare, "d.png");
+                H.InvokeStatic(GM, "ClearAllCoverPaths");
+
+                H.Check("favorite survives", Get("IsFavorite", fav));
+                H.Check("hidden survives", Get("IsHidden", hid));
+                H.Check("last-launched survives", (long)H.InvokeStatic(GM, "LastLaunchedTicks", rec) > 0);
+                H.Check("three records remain; the all-default one is pruned", Count() == 3, $"count={Count()}");
+            }
+            finally { Fresh(); }
+        });
+    }
     /// <summary>A curated HideLogo has to blank the whole overlay, not just the logo image: the tile falls
     /// back to drawing the TITLE AS TEXT when it has no logo, so suppressing the image alone put a wordmark
     /// over exactly the art curated to have none. Read-only — it never writes cover-overrides.json, so the

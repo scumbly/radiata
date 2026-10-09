@@ -425,6 +425,41 @@ internal static class T_WheelStateMachine
                     Math.Abs(sm.ConfirmProgress - partial) < 1e-9, $"got {sm.ConfirmProgress} vs first {partial}");
         });
 
+        H.Try("a completed dwell does not carry onto a different action swapped into the same slot", () =>
+        {
+            static WheelSlice Sys(string cmd) =>
+                new() { Label = cmd, Action = new ActionConfig { Type = "system", Command = cmd, RequireConfirm = true } };
+
+            var sm = new WheelStateMachine();
+            var original = new[] { Sys("sleep"), Plain("Other") };
+            sm.Slices = original;
+            var (x, y) = Vec(0, 1.0);
+            Settle(sm, x, y);
+            double holdMs = (double)H.GetStatic(typeof(WheelStateMachine), "ConfirmHoldMs");
+            int n = (int)Math.Ceiling(holdMs / WheelStateMachine.ConfirmTickMs);
+            for (int i = 0; i < n; i++) sm.Tick(true);
+            H.Check("dwell completed on slot 0", sm.ArmedConfirmReady);
+
+            sm.Slices = original;
+            H.Check("re-setting the same list keeps the completed dwell", sm.ArmedConfirmReady);
+
+            sm.Slices = new[] { Sys("sleep"), Plain("Other") };
+            H.Check("a reloaded copy of the same action keeps the completed dwell", sm.ArmedConfirmReady);
+
+            sm.Slices = new[] { Sys("shutdown"), Plain("Other") };
+            H.Check("a different guarded action in slot 0 is not confirm-ready", !sm.ArmedConfirmReady);
+            H.Check("progress cleared", sm.ConfirmProgress == 0 && !sm.ConfirmDone,
+                    $"progress={sm.ConfirmProgress}");
+
+            for (int i = 0; i < n - 1; i++) sm.Tick(true);
+            H.Check("a fresh dwell is needed: not ready one tick short", !sm.ArmedConfirmReady);
+            sm.Tick(true);
+            H.Check("ready after a full fresh dwell", sm.ArmedConfirmReady);
+
+            sm.Slices = new[] { Plain("Gone") };
+            sm.Slices = new[] { Sys("shutdown") };
+            H.Check("a shrunken list then a restored one starts over", !sm.ArmedConfirmReady);
+        });
         H.Try("RequiresConfirm is false out of range", () =>
         {
             var sm = new WheelStateMachine { Slices = PlainSlices(2) };

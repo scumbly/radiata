@@ -501,7 +501,7 @@ public static class UiText
     /// <summary>The self-drawn corner and status toasts (App.xaml.cs).</summary>
     public static class Toasts
     {
-        public const string UpdateClickBody = "Click for details — updating takes under a minute.";
+        public const string UpdateClickBody = "Click for details.";
         public const string LeftWheel   = "Left Wheel";
         public const string RightWheel  = "Right Wheel";
         public const string Removed     = "Removed";
@@ -728,11 +728,19 @@ public static class UiText
         public const string StageCanopy   = "CANOPY";
         public const string StageNightBloom = "NIGHT BLOOM";
         public const string StageFullBloom = "FULL BLOOM";
-        public const string ConnateHow1   = "Move with the analog stick and tap {cross} to lob your orb. Hold and release {cross} to send it with more force.";
+        public const string ConnateHow1   = "Move with the analog stick. Tap {cross} to shoot, or hold it half a second and release for a hard slam.";
         public const string ConnateHow2   = "Stars of either color snap into star gaps to make orbs.";
         public const string ConnateHow3   = "Identical colors & numbers merge together. Blended orbs can merge into matching numbers of any color, including other blended orbs.";
-        public const string ConnateHow4   = "Merge combos charge your bomb. Bomb a high-scoring piece to collect points from it.";
-        public const string ConnateHow5   = "If the central cluster presses past the boundary, your run ends.";
+        public const string ConnateHow4   = "Merge combos charge your bomb, which loads after your next shot. Bomb a high-scoring piece to collect points from it.";
+        public const string ConnateHow5   = "Merges break adjacent garbage blocks, and bombs sweep them all. Clear the board and a boss block drops in that only bombs can break.";
+        public const string ConnateHow6   = "When the shot clock runs out, your orb fires itself. Stages get faster as you score, and reaching 5, 10 and 15 adds starts there to the pause menu.";
+        public const string ConnateHow7   = "If the central cluster presses past the boundary, your run ends.";
+        /// <summary>Connate's stage-up shout: the second line under "STAGE n".</summary>
+        public const string IntensityIncreases = "INTENSITY INCREASES";
+        /// <summary>Connate's mid-run record shout; gold, like the game-over BEST line.</summary>
+        public const string NewBest       = "NEW BEST";
+        /// <summary>The Connate pause-menu row that starts a new run at an unlocked stage; its values are the stage numbers.</summary>
+        public const string StartAtStage  = "START AT STAGE";
         public const string KabloomHow1   = "Uncover every safe petal to pass the level, but avoid bees!";
         public const string KabloomHow2   = "An uncovered petal counts how many bees are adjacent.";
         public const string KabloomHow3   = "Analog or D-pad selects, and {cross} uncovers a petal.";
@@ -852,7 +860,7 @@ public static class UiText
         public const string PackageAcknowledgeData ="I chose to install this package, I trust where it came from, and I take full responsibility for using it.";
 
         public const string CrashTitle   = "Radiata — crash report";
-        public const string CrashIntro   = "Radiata crashed last time. You can send this report to the developer — this is exactly what would be sent:";
+        public const string CrashIntro   = "Radiata crashed last time. You can send this report to the developer.";
         public const string CrashRemember = "Remember this choice";
         public const string CrashDontSend = "Don't send";
         public const string CrashCopy    = "Copy to clipboard";

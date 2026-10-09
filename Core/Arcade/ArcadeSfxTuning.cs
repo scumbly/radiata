@@ -32,6 +32,9 @@ public static class ArcadeSfxTuning
     public static int DiamondMinIntervalMs = 70;
     public static int PaddleMinIntervalMs = 40;
     public static int ComboShoutMinIntervalMs = 250;
+    /// <summary>Connate's cascade cue: a chain can raise one per merge, and a ladder of overlapping tails
+    /// reads as a smear rather than a climb.</summary>
+    public static int ChainMinIntervalMs = 75;
 
     /// <summary>Petalpop's smash stacks the ordinary paddle take under its own: this is the paddle layer's
     /// pitch ratio (below 1 = lower, ~2 semitones) and its level, on top of the paddle bank's own gain.</summary>

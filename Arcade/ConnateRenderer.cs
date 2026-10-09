@@ -8,7 +8,7 @@ namespace ControllerWheel;
 /// Stateless, code-only WPF renderer for Connate. It converts normalized simulation coordinates to pixels and
 /// derives all animation from simulation-owned ages/timers, so drawing never changes game outcome.
 /// </summary>
-internal sealed class ConnateRenderer : IArcadeRenderer
+internal sealed partial class ConnateRenderer : IArcadeRenderer
 {
     // Renderer-only framing scale: a uniform mapping that puts the craft center at 93.6% of the visible radius
     // and enlarges positions, bodies, rule rings, trails, and effects together. ⚠ Never use this constant from
@@ -132,7 +132,7 @@ internal sealed class ConnateRenderer : IArcadeRenderer
                 c, limit * pulse, limit * pulse);
         }
         else DrawFuse(dc, c, limit, connate.SizeFuse, fieldRadius);
-        DrawAim(dc, c, world, connate);
+        if (!connate.FireLocked) DrawAim(dc, c, world, connate);
 
         // Pending-bond deformation is accumulated by body ID, leaving logical circle collision shapes untouched.
         // A plain loop, not ToDictionary: a duplicate id (a snapshot from another schema) must not throw out
@@ -266,6 +266,8 @@ internal sealed class ConnateRenderer : IArcadeRenderer
                 Overboard(body) ? overPulse : -1, BlendSweep(body));
         }
 
+        DrawBossBlock(dc, c, world, fieldRadius, connate);
+
         foreach (ConnateBombProjectile bomb in connate.BombProjectiles)
         {
             Point p = Screen(c, world, bomb.X, bomb.Y);
@@ -295,7 +297,7 @@ internal sealed class ConnateRenderer : IArcadeRenderer
 
         // The craft is below its payload/clock so the loaded piece remains readable at couch distance.
         DrawCraft(dc, c, world, connate.PlayerAngle, baseTileRadius, connate.PhaseTime, connate.SinceFire,
-                  connate.FireHeld, connate.SinceHold, connate.ShotDrawTension, connate.AutoWindCharge);
+                  connate.FireHeld, connate.SinceHold, connate.ShotDrawTension);
         // ⚠ Carries the craft's breath and its bow draw — both of them, for the same reason. The craft rocks
         // gently in and out at rest and draws back as ✕ is held; a payload sitting at a fixed radius drifted
         // out of its own grip, so every term that moves one has to ride both. The piece is nocked: it goes
@@ -304,7 +306,7 @@ internal sealed class ConnateRenderer : IArcadeRenderer
         Point held = Polar(c, world * (ConnateTuning.LaunchRadius * PayloadInset - PayloadForward
                                        + CraftBreath(connate.PhaseTime)
                                        + CraftDraw(connate.FireHeld, connate.SinceHold, connate.SinceFire,
-                                                   connate.ShotDrawTension, connate.AutoWindCharge)),
+                                                   connate.ShotDrawTension)),
                            connate.PlayerAngle);
         double heldPixelRadius = (connate.HeldIsBomb ? ConnateTuning.BombRadius
             : ConnateTuning.RadiusForRank(connate.HeldRank)) * world;
@@ -338,16 +340,17 @@ internal sealed class ConnateRenderer : IArcadeRenderer
         // ⚠ Squash stays zero: the loaded piece does not breathe, or it reads as alive rather than clamped
         // and fights the craft's own rock. The parameter stays because the heap still uses it for merge
         // anticipation and jelly.
-        else DrawOrb(dc, held, ConnateTuning.RadiusForRank(connate.HeldRank) * world, connate.HeldRank,
+        else if (!connate.RailEmpty) DrawOrb(dc, held, ConnateTuning.RadiusForRank(connate.HeldRank) * world, connate.HeldRank,
             connate.HeldHue, ppd, 0, CraftFacing(connate.PlayerAngle),
             CraftFacing(connate.PlayerAngle));
 
         // Last over the payload, so the grip reads as being on top of whatever is loaded.
         // ⚠ The grips let go as the shot leaves, and are back on the next piece the moment the release
         // animation ends. Held or at rest they are shut; only the release window is clampless.
-        if ((!connate.HeldIsBomb || !connate.BombDelivering)
+        if (!connate.RailEmpty && (!connate.HeldIsBomb || !connate.BombDelivering)
             && connate.SinceFire >= ArcadeSprites.Slot.ConnateGripReleaseSeconds)
             DrawClamps(dc, held, heldPixelRadius, connate.PlayerAngle);
+        DrawChargeTell(dc, held, heldPixelRadius, connate);
 
         // ⚠ After the clamps, so the shower is never buried under a grip. The sparks are drawn in screen
         // space (they fall down the screen), but their flame anchor turns with the casing.
@@ -358,8 +361,12 @@ internal sealed class ConnateRenderer : IArcadeRenderer
         // The bomb flying from the meter into the payload.
         DrawBombDelivery(dc, c, fieldRadius, connate, world, ppd);
 
-        // Over everything, including the payload and the clock — a combo is the loudest thing that happens.
-        DrawComboBanner(dc, c, fieldRadius, connate, ppd);
+        // Over everything, including the payload and the clock. One shout owns the upper slot at a time, in the
+        // order a stage-up, a combo, a new best: a stage-up is the rarest of the three and says the rules just
+        // changed, and a record can wait the second or two a combo takes.
+        if (!DrawStageShout(dc, c, fieldRadius, connate, ppd)
+            && !DrawComboBanner(dc, c, fieldRadius, connate, ppd))
+            DrawNewBestShout(dc, c, fieldRadius, connate, ppd);
         // …and a board clear is louder still, so it goes last of all. The two can overlap for a moment (the
         // bomb that empties the board is usually also finishing a cascade) and they sit at different heights
         // on purpose, so neither has to be suppressed.
@@ -420,7 +427,7 @@ internal sealed class ConnateRenderer : IArcadeRenderer
         ArcadeChrome.DrawInkCentered(dc, stage, new Point(anchor.X, anchor.Y + rowH / 2 + padY * 0.5 + captionH * 0.45));
 
         // ── The next tile ──
-        // What the payload takes after the loaded piece fires: a queued bomb shows as the bomb itself.
+        // What the payload takes after the loaded piece fires: an earned bomb shows as the bomb itself.
         var (nextBomb, nextRank, nextHue) = game.NextPreview();
         if (nextBomb) DrawBomb(dc, next, slot, game.PhaseTime);
         else if (nextRank >= 0) DrawOrb(dc, next, slot, nextRank, nextHue, ppd, 0, 0);
@@ -453,12 +460,12 @@ internal sealed class ConnateRenderer : IArcadeRenderer
     private const double ScorePulseGrowth = 0.22;
 
     /// <summary>The stage caption under the score row: Internode's STAGE string, so every locale already has
-    /// it. Sage ink while relief is on — the one visible tell that garbage is paused and the clock is longer —
-    /// and the plate's dim ink otherwise. No extra word for relief: a new UI string would need four locales.</summary>
+    /// it. Always the plate's dim ink; two digits fit the plate at stage 10 and above because the plate is
+    /// sized by the score row, never by the caption.</summary>
     private static FormattedText StageText(Connate game, double fieldRadius, double ppd) =>
         ArcadeChrome.Text(string.Format(Loc.T(UiText.Arcade.StageN), game.DifficultyStage),
                           ArcadeChrome.Ui(Math.Max(6, fieldRadius * 0.036)),
-                          game.ReliefActive ? ConnatePalette.Aim : ConnatePalette.InkDim, ppd, TextAlignment.Left);
+                          ConnatePalette.InkDim, ppd, TextAlignment.Left);
 
     /// <summary>The bomb charge, as a ghost bomb that fills. It is the same object that then flies into the
     /// payload, so the reward's whole journey is one shape rather than two unrelated widgets.
@@ -508,7 +515,7 @@ internal sealed class ConnateRenderer : IArcadeRenderer
             dc.DrawEllipse(null, ConnatePalette.WhitePen(255, Math.Max(1, r * 0.22 * flash)),
                            c, r * (1.15 + flash * 0.5), r * (1.15 + flash * 0.5));
 
-        // No divider lines between the earned wedges and no row of spare bombs: a queued bomb shows up as the
+        // No divider lines between the earned wedges and no row of spare bombs: an earned bomb shows up as the
         // next tile in the HUD plate instead (DrawScoreboard).
     }
 
@@ -516,18 +523,19 @@ internal sealed class ConnateRenderer : IArcadeRenderer
     /// escalating in colour with the count. A combo happens while the player's eyes are on the merge in the
     /// middle of the board, so it must be obvious there rather than tucked under the score.
     ///
-    /// <para>⚠ Drawn last, over everything.</para></summary>
-    private static void DrawComboBanner(DrawingContext dc, Point c, double fieldRadius, Connate game, double ppd)
+    /// <para>⚠ Drawn last, over everything. Returns whether it drew, so a lower-priority shout can take the
+    /// slot when it is empty.</para></summary>
+    private static bool DrawComboBanner(DrawingContext dc, Point c, double fieldRadius, Connate game, double ppd)
     {
         // Two merges off one shot is the smallest thing worth calling a combo — the first merge is just the
         // shot working. So the banner's first appearance reads "COMBO ×2".
-        if (game.ComboCount < 2 || game.ComboDisplayLeft <= 0) return;
+        if (game.ComboCount < 2 || game.ComboDisplayLeft <= 0) return false;
         double life = Math.Clamp(game.ComboDisplayLeft / Math.Max(0.05, ConnateTuning.ComboDisplaySeconds), 0, 1);
         double age = 1 - life;
 
         // A back-eased pop on arrival, then a slow drift upward. The overshoot is what makes it read as
         // landing rather than appearing.
-        double pop = age < 0.16 ? 1.35 - 0.35 * (age / 0.16) : 1.0 + Math.Sin(age * Math.PI) * 0.05;
+        double pop = ShoutPop(age);
         double rise = fieldRadius * 0.10 * age;
         // The last third fades; before that it stays fully opaque, so the number is never hard to read while
         // the chain it belongs to is still resolving.
@@ -543,9 +551,45 @@ internal sealed class ConnateRenderer : IArcadeRenderer
         // ring and the score rather than over the pieces the player is aiming at.
         DrawShout(dc, c, fieldRadius, Loc.F(UiText.Arcade.Combo, game.ComboCount), ink, age, pop, rise, alpha,
                   0.115, ppd, verticalOffset: -0.50, hud: false);
+        return true;
     }
 
-    /// <summary>The board-clear bonus: the field is empty and the run's score has just been multiplied.
+    /// <summary>The stage-up shout: "STAGE n" over "INTENSITY INCREASES", in the combo banner's slot and at its
+    /// unscaled size, because the player is still playing under it. White, like the board clear — it is a
+    /// statement about the run, not a tally. The second line is drawn with age 1 so it throws no second ring.
+    /// Returns whether it drew.</summary>
+    private static bool DrawStageShout(DrawingContext dc, Point c, double fieldRadius, Connate game, double ppd)
+    {
+        if (game.StageShoutLeft <= 0) return false;
+        double life = Math.Clamp(game.StageShoutLeft / Math.Max(0.05, ConnateTuning.StageShoutSeconds), 0, 1);
+        double age = 1 - life;
+        double pop = ShoutPop(age);
+        double alpha = Math.Clamp(life / 0.20, 0, 1);
+        Color ink = Color.FromRgb(0xFF, 0xFF, 0xFF);
+        DrawShout(dc, c, fieldRadius, Loc.F(UiText.Arcade.StageN, game.StageShoutStage), ink, age, pop,
+                  fieldRadius * 0.04 * age, alpha, 0.115, ppd, verticalOffset: -0.58, hud: false);
+        DrawShout(dc, c, fieldRadius, Loc.T(UiText.Arcade.IntensityIncreases), ink, 1, pop,
+                  fieldRadius * 0.04 * age, alpha, 0.082, ppd, verticalOffset: -0.43, hud: false);
+        return true;
+    }
+
+    /// <summary>The mid-run record shout, in the same slot: gold, because a record is a payout.</summary>
+    private static void DrawNewBestShout(DrawingContext dc, Point c, double fieldRadius, Connate game, double ppd)
+    {
+        if (game.NewBestShoutLeft <= 0) return;
+        double life = Math.Clamp(game.NewBestShoutLeft / Math.Max(0.05, ConnateTuning.NewBestShoutSeconds), 0, 1);
+        double age = 1 - life;
+        DrawShout(dc, c, fieldRadius, Loc.T(UiText.Arcade.NewBest), Color.FromRgb(0xF6, 0xC4, 0x53), age,
+                  ShoutPop(age), fieldRadius * 0.06 * age, Math.Clamp(life / 0.25, 0, 1), 0.115, ppd,
+                  verticalOffset: -0.50, hud: false);
+    }
+
+    /// <summary>A back-eased overshoot on arrival that settles into a faint breath, shared by every shout so
+    /// they land alike. <paramref name="age"/> is the shout's own 0..1 life.</summary>
+    private static double ShoutPop(double age) =>
+        age < 0.16 ? 1.35 - 0.35 * (age / 0.16) : 1.0 + Math.Sin(age * Math.PI) * 0.05;
+
+    /// <summary>The board-clear title: the field is empty and the boss block is about to drop in.
     ///
     /// <para>Uses the same routine as the combo banner, never a lookalike, so the game has exactly one way of
     /// shouting. It is bigger, sits at the centre of the now-empty field rather than above the heap, and takes
@@ -557,17 +601,12 @@ internal sealed class ConnateRenderer : IArcadeRenderer
         double life = Math.Clamp(
             game.BoardClearLeft / Math.Max(0.05, ConnateTuning.BoardClearDisplaySeconds), 0, 1);
         double age = 1 - life;
-        double pop = age < 0.16 ? 1.35 - 0.35 * (age / 0.16) : 1.0 + Math.Sin(age * Math.PI) * 0.05;
+        double pop = ShoutPop(age);
         double alpha = Math.Clamp(life / 0.30, 0, 1);
         Color ink = Color.FromRgb(0xFF, 0xFF, 0xFF);
 
-        // Two lines: what happened, then what it paid. The multiplier is formatted from the constant, so
-        // retuning it can't leave the banner claiming the old number.
         DrawShout(dc, c, fieldRadius, Loc.T(UiText.Arcade.BoardClear), ink, age, pop, fieldRadius * 0.05 * age, alpha,
                   0.125, ppd, verticalOffset: -0.12);
-        DrawShout(dc, c, fieldRadius,
-                  $"BONUS {ConnateTuning.BoardClearMultiplier:0.0#}×", ink, 1, pop, fieldRadius * 0.05 * age,
-                  alpha, 0.095, ppd, verticalOffset: 0.02);
     }
 
     /// <summary>The game's one shout voice (<see cref="ArcadeChrome.DrawShout"/>), centred
@@ -920,7 +959,8 @@ internal sealed class ConnateRenderer : IArcadeRenderer
     /// <see cref="DrawGarbage"/> builds it from — so the pieces are visibly the thing that was there, not a
     /// generic burst. Every piece is derived from the id and the age, so nothing is stored and nothing is
     /// random.</para></summary>
-    private static void DrawGarbageClear(DrawingContext dc, Point c, double world, ConnateGarbageClear clear)
+    private static void DrawGarbageClear(DrawingContext dc, Point c, double world, ConnateGarbageClear clear,
+                                         BitmapSource? artOverride = null, double artReach = GarbageArtReach)
     {
         double t = Math.Clamp(clear.Age / Math.Max(0.01, ConnateTuning.GarbageClearSeconds), 0, 1);
         Point center = Screen(c, world, clear.X, clear.Y);
@@ -941,12 +981,12 @@ internal sealed class ConnateRenderer : IArcadeRenderer
 
         // With art on the board the blob's own picture breaks up; the vector shards below are the fallback
         // for a board that has no sprite to break.
-        if (ArcadeSprites.Get(ArcadeSprites.Slot.ConnateGarbage) is { } art)
+        if ((artOverride ?? ArcadeSprites.Get(ArcadeSprites.Slot.ConnateGarbage)) is { } art)
         {
             // A harder ease than the vector shards: the pieces leave at speed and are visibly coasting by
             // the time they reach the edge, rather than still flying flat out as they go.
             DrawGarbageSpriteShatter(dc, art, center, radius, world / WorldToFieldScale, clear,
-                                     1 - Math.Pow(1 - t, GarbagePieceEase));
+                                     1 - Math.Pow(1 - t, GarbagePieceEase), artReach);
             DrawGarbageDust(dc, center, radius, clear.GarbageId, t, travel);
             return;
         }
@@ -1072,11 +1112,50 @@ internal sealed class ConnateRenderer : IArcadeRenderer
     /// <para><paramref name="fieldRadius"/> is how far a piece has to go to be off the round board from
     /// anywhere on it; every piece's flight is at least that plus the blob's own radius.</para></summary>
     private static void DrawGarbageSpriteShatter(DrawingContext dc, BitmapSource art, Point center, double radius,
-                                                 double fieldRadius, ConnateGarbageClear clear, double travel)
+                                                 double fieldRadius, ConnateGarbageClear clear, double travel,
+                                                 double artReach = GarbageArtReach)
     {
-        double half = radius * GarbageArtReach;
+        double half = radius * artReach;
         if (half < 1) return;
         Rect box = ArcadeSprites.Box(center, half);
+        ShatterPiece[] plan = ShatterPlan(center, half, clear);
+        double lumpDegrees = clear.Rotation * 180 / Math.PI;
+        for (int i = 0; i < plan.Length; i++)
+        {
+            ShatterPiece piece = plan[i];
+            // Guaranteed past the edge by the end of the clear, from anywhere on the board.
+            double distance = (fieldRadius + radius) * piece.Reach * travel;
+            double spin = piece.Spin * travel;
+            dc.PushTransform(new TranslateTransform(Math.Cos(piece.Heading) * distance, Math.Sin(piece.Heading) * distance));
+            dc.PushTransform(new RotateTransform(spin, piece.Pivot.X, piece.Pivot.Y));
+            dc.PushTransform(new RotateTransform(lumpDegrees, center.X, center.Y));
+            dc.PushClip(piece.Clip);
+            ArcadeSprites.Draw(dc, art, box);
+            dc.Pop(); dc.Pop(); dc.Pop(); dc.Pop();
+        }
+    }
+
+    /// <summary>One piece of a broken sprite: its clip, where it turns, which way it leaves and how far and fast.
+    /// Everything but the travel is fixed by the blob's id and size, so a whole break shares one plan.</summary>
+    private readonly record struct ShatterPiece(Geometry Clip, Point Pivot, double Heading, double Reach, double Spin);
+
+    private readonly record struct ShatterKey(long Id, double X, double Y, double Half, double Rotation);
+
+    private static readonly Dictionary<ShatterKey, ShatterPiece[]> ShatterPlans = [];
+
+    /// <summary>The cut for one break, built once and reused for every frame of it. The key is everything the
+    /// cut depends on, so a blob that moves or resizes gets a new plan; the table is cleared past a few dozen
+    /// breaks, which only a pathological run of simultaneous clears can reach.</summary>
+    private static ShatterPiece[] ShatterPlan(Point center, double half, ConnateGarbageClear clear)
+    {
+        var key = new ShatterKey(clear.GarbageId, center.X, center.Y, half, clear.Rotation);
+        if (ShatterPlans.TryGetValue(key, out ShatterPiece[]? hit)) return hit;
+        if (ShatterPlans.Count >= 48) ShatterPlans.Clear();
+        return ShatterPlans[key] = BuildShatterPlan(center, half, clear);
+    }
+
+    private static ShatterPiece[] BuildShatterPlan(Point center, double half, ConnateGarbageClear clear)
+    {
         ulong seed = (ulong)(clear.GarbageId * 0x9E3779B1L) ^ 0x5851F42D4C957F2DUL;
         double Hash(int k) { unchecked { ulong h = seed + (ulong)k * 0x9E3779B97F4A7C15UL; h ^= h >> 29; h *= 0xBF58476D1CE4E5B9UL; h ^= h >> 32; return (h & 0xFFFFFF) / (double)0x1000000; } }
 
@@ -1119,8 +1198,8 @@ internal sealed class ConnateRenderer : IArcadeRenderer
             pieces.Add([ring[k0], ring[k0 + 1], ring[(k0 + 2) % 20], far[(k0 + 2) % 20], far[k0 + 1], far[k0]]);
         }
 
-        double lumpDegrees = clear.Rotation * 180 / Math.PI;
         double cos = Math.Cos(clear.Rotation), sin = Math.Sin(clear.Rotation);
+        var plan = new ShatterPiece[pieces.Count];
         for (int i = 0; i < pieces.Count; i++)
         {
             Point[] shape = pieces[i];
@@ -1136,17 +1215,10 @@ internal sealed class ConnateRenderer : IArcadeRenderer
             double heading = Math.Atan2(pivot.Y - center.Y, pivot.X - center.X);
             if (double.IsNaN(heading) || (dx * dx + dy * dy) < 1) heading = Hash(200 + i) * Math.PI * 2;
             heading += (Hash(220 + i) - 0.5) * 0.5;
-            // Guaranteed past the edge by the end of the clear, from anywhere on the board.
-            double distance = (fieldRadius + radius) * (1.02 + Hash(240 + i) * 0.18) * travel;
-            double spin = (Hash(260 + i) - 0.5) * 900 * travel;
-
-            dc.PushTransform(new TranslateTransform(Math.Cos(heading) * distance, Math.Sin(heading) * distance));
-            dc.PushTransform(new RotateTransform(spin, pivot.X, pivot.Y));
-            dc.PushTransform(new RotateTransform(lumpDegrees, center.X, center.Y));
-            dc.PushClip(Polygon(shape));
-            ArcadeSprites.Draw(dc, art, box);
-            dc.Pop(); dc.Pop(); dc.Pop(); dc.Pop();
+            plan[i] = new ShatterPiece(Polygon(shape), pivot, heading,
+                1.02 + Hash(240 + i) * 0.18, (Hash(260 + i) - 0.5) * 900);
         }
+        return plan;
     }
 
     /// <summary>Dust: smaller, faster, and sage rather than slate, so the burst carries the colour the game
@@ -1694,6 +1766,25 @@ internal sealed class ConnateRenderer : IArcadeRenderer
         }
     }
 
+    /// <summary>How long the full-charge ring takes to open and fade.</summary>
+    private const double ChargeTellSeconds = 0.22;
+
+    /// <summary>The tell that the draw is complete: one sage ring opens from the clamps and fades the moment the
+    /// hold reaches <c>FullChargeSeconds</c>. The bow draw alone ramps up and stops, so nothing else says the
+    /// release is now a slam. Keyed off the hold clock, so a frozen board repaints as it froze, and drawn once
+    /// per hold — a held ✕ afterwards just sits at full draw. Not for a bomb, which ignores charge.</summary>
+    private static void DrawChargeTell(DrawingContext dc, Point held, double radius, Connate game)
+    {
+        if (!game.FireHeld || game.HeldIsBomb || radius < 2) return;
+        double t = (game.SinceHold - ConnateTuning.FullChargeSeconds) / ChargeTellSeconds;
+        if (t < 0 || t >= 1) return;
+        double open = 1 - (1 - t) * (1 - t);
+        double ring = radius * (1.50 + 0.55 * open);
+        dc.PushOpacity(1 - t);
+        dc.DrawEllipse(null, ConnatePalette.ChargeRing, held, ring, ring);
+        dc.Pop();
+    }
+
     /// <summary>The per-hue sprite slot for one of the two shape ranks: rank 0 the star, rank 1 the socket
     /// it drops into. Ember or azure only — these two can never blend, the threshold is far above them.</summary>
     private static string StarSlot(int rank, int hue) => rank == 0
@@ -1985,9 +2076,9 @@ internal sealed class ConnateRenderer : IArcadeRenderer
     /// payload ride so the whole assembly moves as one thing. Scaled off <see cref="CraftDraw"/>: its draw
     /// depth maps to the forward angle and its release overshoot to the swing away, so the deadzone, the
     /// eased draw and the single-push return all carry over without a second curve to keep in step.</summary>
-    private static double WingFlap(bool held, double sinceHold, double sinceFire, double shotTension, double autoWind)
+    private static double WingFlap(bool held, double sinceHold, double sinceFire, double shotTension)
     {
-        double draw = CraftDraw(held, sinceHold, sinceFire, shotTension, autoWind);
+        double draw = CraftDraw(held, sinceHold, sinceFire, shotTension);
         return draw >= 0
             ? draw / Math.Max(1e-6, CraftDrawDepth) * CraftWingDrawDegrees
             : draw / Math.Max(1e-6, CraftSpringDepth) * CraftWingReleaseDegrees;
@@ -2035,7 +2126,7 @@ internal sealed class ConnateRenderer : IArcadeRenderer
     /// or the grip comes apart. Both clocks are the sim's, so a frozen board repaints as it froze.</para>
     ///
     /// <para>⚠ The spring reads <c>Connate.ShotDrawTension</c>, not the hold clock. The hold clock merely
-    /// freezes at its last value, so a deadline shot would spring from a full draw the craft was never at and
+    /// freezes at its last value, so a deadline shot fired with ✕ up would spring from a draw the craft was never at and
     /// jerk the whole assembly outward on the frame the clock spent the piece. The sim records what the bow
     /// was actually at; see that property.</para>
     ///
@@ -2043,8 +2134,7 @@ internal sealed class ConnateRenderer : IArcadeRenderer
     /// <c>SinceFire</c> stays old and is indistinguishable from long-settled, and the assembly returns to rest
     /// in one frame. That matches the craft's own sprite, which likewise snaps back with no shot; animating it
     /// needs a refusal clock the sim does not keep.</para></summary>
-    private static double CraftDraw(bool held, double sinceHold, double sinceFire, double shotTension,
-                                    double autoWind)
+    private static double CraftDraw(bool held, double sinceHold, double sinceFire, double shotTension)
     {
         // Eased so the draw is fastest in its first frames and stiffens toward the end — how a bow actually
         // resists, and what lets a moderate hold read as a draw rather than as nothing happening.
@@ -2059,12 +2149,9 @@ internal sealed class ConnateRenderer : IArcadeRenderer
             return CraftDrawDepth * (1 - Math.Pow(1 - over, 2.2));
         }
 
-        // The deadline winds the launcher on its own, so the bow answers whichever is deeper: the player's
-        // hold, or the clock closing. Without the max a player holding through the final stretch would see
-        // the draw they built jump to whatever the clock had reached.
-        double charge = Math.Max(held ? sinceHold / Math.Max(1e-3, ConnateTuning.FullChargeSeconds) : 0,
-                                 autoWind);
-        // Mid-spring the auto-wind is still 0 (Fire resets the clock), so the release keeps the branch.
+        // The bow draws only while the player holds: a full draw means the release is a slam, so nothing but a
+        // held ✕ may produce one.
+        double charge = held ? sinceHold / Math.Max(1e-3, ConnateTuning.FullChargeSeconds) : 0;
         double s = Math.Clamp(sinceFire / Math.Max(1e-3, CraftSpringSeconds), 0, 1);
         if (held || s >= 1) return Pull(charge);
 
@@ -2080,8 +2167,7 @@ internal sealed class ConnateRenderer : IArcadeRenderer
 
     private static void DrawCraft(DrawingContext dc, Point c, double world, double angle, double tileRadius, double time,
                                  double sinceFire = double.PositiveInfinity, bool held = false,
-                                 double sinceHold = double.PositiveInfinity, double shotTension = 0,
-                                 double autoWind = 0)
+                                 double sinceHold = double.PositiveInfinity, double shotTension = 0)
     {
         // Local coordinates: t runs tangent to the rim; radial runs inward. This keeps one authored silhouette
         // correctly oriented for every player angle without bitmap assets or per-angle geometry.
@@ -2090,7 +2176,7 @@ internal sealed class ConnateRenderer : IArcadeRenderer
         // ⚠ The bow draw is added outside the inset, not inside it: scaled by CraftInset the craft would draw
         // back 14% less than the payload it is holding, and the string would stretch.
         Point center = Polar(c, world * ((ConnateTuning.CraftOrbitRadius + CraftBreath(time)) * CraftInset
-                                         + CraftDraw(held, sinceHold, sinceFire, shotTension, autoWind)), angle);
+                                         + CraftDraw(held, sinceHold, sinceFire, shotTension)), angle);
         var outward = new Vector(Math.Sin(angle), -Math.Cos(angle));
         var inward = -outward;
         var tangent = new Vector(Math.Cos(angle), Math.Sin(angle));
@@ -2103,14 +2189,7 @@ internal sealed class ConnateRenderer : IArcadeRenderer
         // frames play once per shot off the sim's own recoil clock, so a frozen board repaints identically.
         // A hold outranks the release: the wound pose lasts as long as the player holds it, where releasing
         // snaps straight back to rest. Held reads the sim, not the pad, so a frozen board repaints as it froze.
-        //
-        // The deadline winds the craft too, with ✕ untouched, so the pose agrees with the bow beside it —
-        // a hull sitting at rest while its own launcher is visibly drawn back reads as a bug. It is fed the
-        // wind-up's own elapsed time, scaled out of the auto-wind fraction, so the frames step at the rate
-        // they were authored for rather than being stretched over the clock's window.
-        double windTime = held ? sinceHold
-            : autoWind > 0 ? autoWind * ArcadeSprites.Slot.ConnateCraftWind.Length / ArcadeSprites.ShotFps
-            : double.NegativeInfinity;
+        double windTime = held ? sinceHold : double.NegativeInfinity;
         var pose = double.IsFinite(windTime)
             ? ArcadeSprites.Once(ArcadeSprites.Slot.ConnateCraft, windTime, ArcadeSprites.Slot.ConnateCraftWind)
             : ArcadeSprites.Once(ArcadeSprites.Slot.ConnateCraft, sinceFire, ArcadeSprites.Slot.ConnateCraftShot);
@@ -2127,7 +2206,7 @@ internal sealed class ConnateRenderer : IArcadeRenderer
             // The wings flap about their shoulders with the bow: forward as it draws, a quick swing away as
             // it releases, back to rest. The right wing is the left one mirrored through the frame's centre,
             // flap included, so one drawing and one angle serve both.
-            double flap = WingFlap(held, sinceHold, sinceFire, shotTension, autoWind);
+            double flap = WingFlap(held, sinceHold, sinceFire, shotTension);
             Point shoulder = At(CraftWingPivotX, CraftWingPivotY);
             Rect wingBox = ArcadeSprites.Box(At(-CraftWingOffsetX, CraftWingOffsetY), partHalf);
             dc.PushTransform(new RotateTransform(flap, shoulder.X, shoulder.Y));
@@ -2194,7 +2273,7 @@ internal sealed class ConnateRenderer : IArcadeRenderer
             c.X, c.Y - field * 0.22, ppd, field * 1.5);
         ArcadeChrome.DrawCentered(dc, game.FinalFieldSum.ToString("N0"), ArcadeChrome.Ui(Math.Max(15, field * 0.115)), ConnatePalette.Ink,
             c.X, c.Y - field * 0.10, ppd, field * 1.6);
-        ArcadeChrome.DrawCentered(dc, $"BEST {game.HighScore:N0}", ArcadeChrome.Ui(Math.Max(9, field * 0.050)), ConnatePalette.Aim,
+        ArcadeChrome.DrawCentered(dc, Loc.F(UiText.Arcade.Best, game.HighScore.ToString("N0", System.Globalization.CultureInfo.InvariantCulture)), ArcadeChrome.Ui(Math.Max(9, field * 0.050)), ConnatePalette.Aim,
             c.X, c.Y + field * 0.20, ppd, field * 1.5);
         // Both ways out of the end screen, so ✕ is not the only door the card admits to.
         ArcadeChrome.DrawCenteredRow(dc,
@@ -2217,11 +2296,14 @@ internal sealed class ConnateRenderer : IArcadeRenderer
     }
 
     // ── How-to-play illustrations ─────────────────────────────────────────────
-    // One per bullet on the △ card, drawn with the board's own routines — DrawOrb, DrawBomb, DrawCraft —
+    // One per bullet on the △ card, drawn with the board's own routines — DrawOrb, DrawBomb, DrawCraft,
+    // DrawGarbage, DrawShotClock and DrawBossBody —
     // rather than with simplified stand-ins. That matters more here than it would elsewhere: Connate's
     // rules are carried by shape and colour (a star and a socket that fit; two families that don't mix),
     // so a diagram that merely resembles a tile would be teaching the wrong thing. Everything is passed a
     // time of 0 and no squash, so the card is still.
+
+    private const long HowToGarbageId = 7;
 
     public void DrawHowToArt(DrawingContext dc, Rect box, string art, double ppd)
     {
@@ -2264,6 +2346,30 @@ internal sealed class ConnateRenderer : IArcadeRenderer
 
             case "bomb":
                 DrawBomb(dc, c, r * 0.80, 0, art: true);   // the board's bomb art, not the vector fallback
+                break;
+
+            // A garbage block with an orb touching it: the merge that breaks it is the rule, so the two are
+            // drawn in contact.
+            case "garbage":
+            {
+                DrawGarbage(dc, new Point(c.X - r * 0.28, c.Y), r * 0.86, HowToGarbageId, 0);
+                DrawOrb(dc, new Point(c.X + r * 0.72, c.Y + r * 0.14), r * 0.34, 2, ConnateRules.HueAzure, ppd, 0, 0);
+                break;
+            }
+
+            // The held orb with the shot clock's sweep behind it, drawn as the board draws them: the wedge
+            // first, then the tile over it.
+            case "clock":
+            {
+                double tile = r * 0.60;
+                DrawShotClock(dc, c, tile * 1.34, 0.62, r, 0);
+                DrawOrb(dc, c, tile, 2, ConnateRules.HueAzure, ppd, 0, 0);
+                break;
+            }
+
+            // The boss block as the encounter draws it.
+            case "boss":
+                DrawBossBody(dc, c, r * 0.74, 0, 0);
                 break;
 
             // The limit ring with a tile pressing through it, wearing the same over-limit warning outline

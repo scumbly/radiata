@@ -456,6 +456,8 @@ internal static class ConnatePalette
     public static readonly Pen GravityPen = P(GravityLine, 1);
     public static readonly Pen LimitPen = P(Limit, 1.4);
     public static readonly Pen AimPen = P(Aim, 1.6);
+    /// <summary>The full-charge ring: sage, never gold (gold is value on its way to the counter).</summary>
+    public static readonly Pen ChargeRing = P(Aim, 3.0);
     /// <summary>The craft's outline — cel black like the tiles it fires.</summary>
     public static readonly Pen CraftPen = P(CelInk, CelWidth);
 

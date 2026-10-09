@@ -41,6 +41,13 @@ public sealed class ConnateBody
     /// <summary>Spin rate, radians/second, damped toward zero. Given only to a fired 1 or 2, whose
     /// wedge/mouth silhouette is the only place rotation is visible.</summary>
     public double SpinRate { get; set; }
+    /// <summary>True from a charged launch until the body's first closing contact. While set, the body's speed
+    /// clamp is <see cref="ConnateTuning.ChargedMaxSpeedPerSec"/> and that contact bounces at
+    /// <see cref="ConnateTuning.ChargedImpactRestitution"/>; the contact clears it on both bodies, so one
+    /// impact spends it however many substeps or solver passes follow. Not JSON-serialized: snapshots carry it
+    /// through their own record, and the physics benchmark digest must not move for uncharged bodies.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool Charged { get; set; }
     /// <summary>Allows a newly spawned garbage body to cross inward through the otherwise absolute outer wall.</summary>
     public bool EnteringPlayfield { get; set; }
     /// <summary>

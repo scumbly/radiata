@@ -211,6 +211,9 @@ public sealed class UpdateWindow : Window
             SteamRestartFlag.Arm();
         if (!UpdateService.LaunchInstallerAndExit(path))
         {
+            // The install didn't start (exit veto or installer failure): the consent was for THIS update.
+            if (restartSteamAccepted)
+                SteamRestartFlag.Disarm();
             ResumeSteamRestartOffer();
             _status.Text = Loc.F(UiText.Dialogs.UpdateInstallerFailed, path);
             _progress.Visibility = Visibility.Collapsed;

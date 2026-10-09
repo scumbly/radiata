@@ -1,12 +1,19 @@
-# Build + package + (optionally) sign a Radiata release.
+# Test + build + sign + package a Radiata release.
 #
 # Trigger: push a tag like `v0.9.21`, or run manually (workflow_dispatch).
 # Output: `Radiata-<ver>-setup.exe` (the only published artifact) + `latest.json` attached to a
 # DRAFT GitHub Release. This workflow does not publish the update feed; the maintainer does that after
 # publishing the release.
 #
-# SIGNING uses Azure Artifact Signing and is GATED on the repo variable SIGNING_ENABLED == 'true';
-# unset, the workflow builds + releases UNSIGNED. To enable:
+# GATES, in order: `preflight` (signing must be enabled), `tests` (tests.yml, called on the same commit),
+# then `build`. A failure in either of the first two stops the run before anything is built or drafted.
+#
+# SIGNING uses Azure Artifact Signing and FAILS CLOSED: the repo variable SIGNING_ENABLED must be 'true'
+# or `preflight` fails the run. The one exception is a manual run (workflow_dispatch) that ticks the
+# `allow_unsigned` input AND finds SIGNING_ENABLED unset: it is a REHEARSAL BUILD that stops after
+# compiling the unsigned setup exe, writes no `latest.json` and drafts no release, so nothing unsigned
+# is ever published or advertised to the updater. Ticking it with signing enabled changes nothing: the
+# run signs. To enable signing:
 #   1. Complete Individual identity validation; create an Artifact Signing account and a Public Trust
 #      certificate profile; create an Entra app registration with a GitHub OIDC federated credential
 #      for this repo, holding the "Artifact Signing Certificate Profile Signer" role.
@@ -29,13 +36,58 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      allow_unsigned:
+        description: 'Rehearsal build only: permit a run with SIGNING_ENABLED unset. Builds the unsigned setup exe, then stops - no latest.json, no draft release.'
+        type: boolean
+        default: false
 
 permissions:
   contents: write        # create the GitHub Release
   id-token: write        # OIDC for azure/login (Artifact Signing)
 
 jobs:
+  # Signing fails closed. Runs first and alone; every later job depends on it.
+  preflight:
+    runs-on: ubuntu-latest
+    # SIGNING_ENABLED and the signing variables live on the `release` environment, and a job sees an
+    # environment's variables only when it runs in that environment.
+    environment: release
+    permissions:
+      contents: read
+    outputs:
+      signing: ${{ steps.gate.outputs.signing }}
+    steps:
+      - name: Require signing
+        id: gate
+        shell: bash
+        env:
+          SIGNING_ENABLED: ${{ vars.SIGNING_ENABLED }}
+          ALLOW_UNSIGNED: ${{ inputs.allow_unsigned }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ "$SIGNING_ENABLED" = "true" ]; then
+            echo "signing=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$ALLOW_UNSIGNED" = "true" ]; then
+            echo "signing=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::SIGNING_ENABLED is not 'true' and allow_unsigned was ticked: this is an UNSIGNED REHEARSAL. It builds the setup exe, then stops - no latest.json, no draft release."
+            exit 0
+          fi
+          echo "::error::Refusing to build a release: the repository variable SIGNING_ENABLED is not 'true'. Set it (and the signing secrets and variables, see packaging/artifact-signing-setup.md) and re-run. A manual run may tick allow_unsigned for an unpublished rehearsal build."
+          exit 1
+
+  # The same suite tests.yml runs on every push, on the commit being released. A tag push does not
+  # trigger tests.yml itself (its push filter is branches only), so the release calls it here.
+  tests:
+    needs: preflight
+    permissions:
+      contents: read
+    uses: ./.github/workflows/tests.yml
+
   build:
+    needs: [preflight, tests]
     runs-on: windows-latest
     # The Entra federated credential trusts subject ...:environment:release. A tag-scoped credential
     # would match only one tag, so the job must keep running in this environment for azure/login.
@@ -111,12 +163,12 @@ jobs:
           if (-not (Test-Path -LiteralPath $dir -PathType Container)) { throw "Staging path '$dir' does not exist." }
           "dir=$dir" >> $env:GITHUB_OUTPUT
 
-      # ── SIGNING, FIRST PASS: the inner executables (gated on SIGNING_ENABLED) ───────────────────
+      # ── SIGNING, FIRST PASS: the inner executables (run whenever preflight enabled signing) ──────
       # Signs them in the staging folder with Azure Artifact Signing (the key stays in Microsoft's HSM;
       # none touches CI) before the Inno compile packs them. The bundled Nefarius drivers are already
       # signed. Signing rewrites the helper exe, so the compile step below refreshes the helper manifest.
       - name: Azure login (OIDC)
-        if: ${{ vars.SIGNING_ENABLED == 'true' }}
+        if: ${{ needs.preflight.outputs.signing == 'true' }}
         uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -124,7 +176,7 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Artifact Signing - sign the inner executables
-        if: ${{ vars.SIGNING_ENABLED == 'true' }}
+        if: ${{ needs.preflight.outputs.signing == 'true' }}
         uses: azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0
         with:
           endpoint: ${{ vars.ARTIFACT_SIGNING_ENDPOINT }}
@@ -139,7 +191,7 @@ jobs:
 
       # An unsigned or untimestamped inner exe fails the run here, before it can be packed into the setup exe.
       - name: Verify inner signatures
-        if: ${{ vars.SIGNING_ENABLED == 'true' }}
+        if: ${{ needs.preflight.outputs.signing == 'true' }}
         shell: pwsh
         env:
           STAGING_DIR: ${{ steps.stage.outputs.dir }}
@@ -148,18 +200,18 @@ jobs:
 
       # Second half of the script: refreshes the helper manifest from the (possibly signed) helper files,
       # runs the Help content check, compiles radiata.iss from the staging folder, hashes the setup exe and
-      # writes publish/latest.json (rewritten below once the setup exe is signed). With signing disabled
-      # the two halves pack the same payload as a one-shot run.
+      # writes publish/latest.json (rewritten below once the setup exe is signed). On an unsigned
+      # rehearsal the two halves pack the same payload as a one-shot run.
       - name: Build installer - compile the setup exe
         shell: pwsh
         env:
           STAGING_DIR: ${{ steps.stage.outputs.dir }}
         run: ./tools/build-installer.ps1 -Public -FromStaging $env:STAGING_DIR
 
-      # ── SIGNING, SECOND PASS: the setup exe (gated on SIGNING_ENABLED) ──────────────────────────
+      # ── SIGNING, SECOND PASS: the setup exe (run whenever preflight enabled signing) ─────────────
       # Signs the setup exe in place before the feed is hashed. The Azure login above is still in effect.
       - name: Artifact Signing - sign the setup exe
-        if: ${{ vars.SIGNING_ENABLED == 'true' }}
+        if: ${{ needs.preflight.outputs.signing == 'true' }}
         uses: azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0
         with:
           endpoint: ${{ vars.ARTIFACT_SIGNING_ENDPOINT }}
@@ -173,15 +225,16 @@ jobs:
       # Fails the run rather than drafting a release whose exe is unsigned or untimestamped: without a
       # timestamp the signature dies with the short-lived certificate (days), not with the release.
       - name: Verify setup exe signature
-        if: ${{ vars.SIGNING_ENABLED == 'true' }}
+        if: ${{ needs.preflight.outputs.signing == 'true' }}
         shell: pwsh
         run: ./tools/verify-signature.ps1 "publish/${{ steps.ver.outputs.setup }}"
       # ── END SECOND PASS ────────────────────────────────────────────────────────────────────────
 
       # Rewrite latest.json against the FINAL setup exe: signing rewrites the file, so the sha256
-      # build-installer.ps1 computed would no longer match. Runs unconditionally — on the unsigned
-      # path it reproduces the same hash, and the feed on disk is always the one to upload.
+      # build-installer.ps1 computed would no longer match. Skipped on an unsigned rehearsal, whose
+      # latest.json (written by the compile step) must never be uploaded or advertised.
       - name: Finalize latest.json
+        if: ${{ needs.preflight.outputs.signing == 'true' }}
         shell: pwsh
         run: |
           $v     = '${{ steps.ver.outputs.version }}'
@@ -191,7 +244,9 @@ jobs:
           [System.IO.File]::WriteAllText('publish/latest.json', $json, (New-Object System.Text.UTF8Encoding($false)))
           Write-Host "latest.json sha256: $sha"
 
+      # Skipped on an unsigned rehearsal: nothing unsigned is drafted.
       - name: Draft GitHub Release
+        if: ${{ needs.preflight.outputs.signing == 'true' }}
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           name: Radiata ${{ steps.ver.outputs.version }}
@@ -203,6 +258,6 @@ jobs:
           body: |
             Radiata ${{ steps.ver.outputs.version }} — Windows installer (win-x64).
 
-            Download and run `${{ steps.ver.outputs.setup }}`. Installs without admin rights;
-            Windows asks for permission when you install the controller drivers. Existing installs
+            Download and run `${{ steps.ver.outputs.setup }}`. Leave **Install drivers (recommended)**
+            selected and approve any necessary Windows prompts that follow. Existing installs
             update themselves — no need to download anything.

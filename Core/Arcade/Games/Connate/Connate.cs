@@ -23,9 +23,10 @@ public sealed class Connate : IArcadeGame
         /// <summary>A nugget of value landed in the counter. Rate-limited in the sim rather than the mixer —
         /// see ConnateTuning.ScoreCollectCueMinimumSeconds.</summary>
         Collect = 512,
-        /// <summary>The field emptied of every tile and blob (the multiplier paid), a full charge gifted a bomb, a bomb
-        /// went off, a pressure blob arrived or was swept, and one more merge counted toward the combo. Split from
-        /// NewBest and Chain so each reads as its own moment.</summary>
+        /// <summary>The field emptied of every tile and blob (the boss block is coming), a full charge or a board
+        /// clear gifted a bomb, a bomb went off (the block takes bomb hits as explosions), a pressure blob arrived or
+        /// was swept, and one more merge counted toward the combo. Split from NewBest and Chain so each reads as
+        /// its own moment.</summary>
         BoardClear = 1024, BombEarned = 2048, BombExplode = 4096, GarbageArrive = 8192, GarbageCleared = 16384, ComboStep = 32768,
     }
 
@@ -70,15 +71,30 @@ public sealed class Connate : IArcadeGame
 
     /// <summary>How far the bow was drawn when the last shot left, 0..1 on the same scale as the launch charge
     /// — 0 for a shot nobody drew. The renderer springs the craft forward from this, so it has to be the
-    /// tension the craft was actually at, not the shot's power: a deadline shot is full power and yet the
-    /// craft was never pulled back, and springing it from full draw would jump the whole assembly outward on
-    /// the frame the clock spent the piece.
+    /// tension the craft was actually at, not the shot's power: a deadline shot while ✕ is up was never drawn,
+    /// and springing it from a draw would jump the whole assembly outward on the frame the clock spent the
+    /// piece.
     ///
     /// <para>⚠ Not snapshotted, for the same reason <see cref="FireHeld"/> is not. It restores 0, which
     /// simply means a resumed run does not finish a spring it cannot know it was in.</para></summary>
     public double ShotDrawTension => _shotDrawTension;
 
+    /// <summary>Drops a hold in progress without firing: the host cleared its input because the board stopped
+    /// being played (pause, a how-to card, the isolation guard, the resume beat, a restart). A button still
+    /// physically down across the gap is consumed, so it cannot arm a charge nobody started on the live board,
+    /// and a release made during the gap cannot fire a stale charge on the first step back.</summary>
+    public void CancelInput()
+    {
+        _fireHeld = false;
+        _pressConsumed = true;
+        _sinceHold = RecoilCap;
+    }
+
     private bool _fireHeld;
+    /// <summary>✕ is down but its press was spent without a release — the shot clock fired the piece mid-hold,
+    /// the intro was skipped with it, or the host cancelled the hold. Cleared by releasing or by a fresh press
+    /// edge; while set, the hold neither draws the bow nor fires on release.</summary>
+    private bool _pressConsumed;
     private double _sinceHold = RecoilCap;
     private double _shotDrawTension;
     // Chain provenance changes audiovisual intensity only; it never awards score or changes merge rules.
@@ -96,9 +112,10 @@ public sealed class Connate : IArcadeGame
     private double _rimVelocity;
     private double _garbageTimeLeft;
     private Cue _cues;
-    /// <summary>Floor on bomb immunity, so the relief a bomb gives outlasts the next tile fired.</summary>
+    /// <summary>Floor on bomb immunity, so the respite a bomb gives outlasts the next tile fired.</summary>
     private double _immunityFloorLeft;
-    /// <summary>A tile displaced by a gifted bomb, handed back after the bomb is fired. −1 = nothing queued.
+    /// <summary>The tile that was NEXT when a bomb loaded, parked behind the bomb(s) and handed to the rail
+    /// after the last one fires. −1 = nothing parked; only ever set while a bomb is loaded.
     /// Serialized: losing it would silently eat the player's tile.</summary>
     private int _queuedRank = -1;
     private int _queuedHue = ConnateRules.HueAzure;
@@ -120,47 +137,53 @@ public sealed class Connate : IArcadeGame
     // ⚠ Don't bind a mechanic to △: the host owns it for the HOW TO PLAY card, so a game never sees it.
     public double SizeFuse { get; private set; }
     public long FinalFieldSum { get; private set; }
-    /// <summary>The BANKED value: every numbered body a bomb has turned into motes plus every board-clear
-    /// bonus, credited the instant it is earned rather than when the motes land. It is the difficulty input
+    /// <summary>The BANKED value: every numbered body a bomb has turned into motes plus every boss-block hit,
+    /// credited the instant it is earned rather than when the motes land. It is the difficulty input
     /// (<see cref="DifficultyIndex"/>) and the total <see cref="CollectedScore"/> is always catching up to;
     /// keeping it separate from the board lets physical deletion reclaim space without erasing earned value.
     /// </summary>
     public long ExplodedValue { get; private set; }
 
     // ── Difficulty stages ────────────────────────────────────────────────────
-    /// <summary>0..5, derived from <see cref="ExplodedValue"/> on every read — never stored, so one payout
-    /// can skip stages and a restored run is simply at the stage its banked total says.</summary>
-    public int DifficultyIndex => ConnateTuning.StageIndexFor(ExplodedValue);
-    /// <summary>The player-facing stage number, 1..6.</summary>
+    /// <summary>0..19, derived from <see cref="ExplodedValue"/> on every read — never stored, so one payout
+    /// can skip stages and a restored run is simply at the stage its banked total says. Twenty is the cap.
+    /// ⚠ Frozen at the stage the board was cleared at for as long as the boss-block encounter lasts, whatever
+    /// the hits bank; the owed rise is announced when the block is gone.</summary>
+    public int DifficultyIndex => _boss.Active ? _boss.CapturedStage : ConnateTuning.StageIndexFor(ExplodedValue);
+    /// <summary>The player-facing stage number, 1..20.</summary>
     public int DifficultyStage => DifficultyIndex + 1;
-    /// <summary>Relief: from stage 2, the last <see cref="ConnateTuning.ReliefSeconds"/> of every
-    /// <see cref="ConnateTuning.PressureCycleSeconds"/> of playing-phase time. Garbage pauses and the shot
-    /// deadline lengthens; nothing else changes. Off in every other phase, so a breach ends it.</summary>
-    public bool ReliefActive
-    {
-        get
-        {
-            if (DifficultyIndex < 1 || Phase != Stage.Playing) return false;
-            double cycle = Math.Max(1, ConnateTuning.PressureCycleSeconds);
-            double relief = Math.Clamp(ConnateTuning.ReliefSeconds, 0, cycle);
-            return PhaseTime % cycle >= cycle - relief;
-        }
-    }
     /// <summary>The live shot deadline in seconds. Tracked rather than recomputed per read so a change can
     /// rescale the elapsed clock exactly once — see <see cref="SyncShotClockDeadline"/>.</summary>
     public double ShotClockDeadline => _shotClockDeadline;
     private double _shotClockDeadline = ConnateTuning.ShotClockSeconds;
 
-    /// <summary>Moves the deadline to what the stage and relief state now call for, carrying the FRACTION of
-    /// the clock already spent across: a clock half-used at 3.00 s is half-used at 2.85 s. Without the rescale
-    /// a shrinking deadline could drop beneath the elapsed time and fire the piece on the spot.</summary>
+    /// <summary>Moves the deadline to what the stage now calls for, carrying the FRACTION of the clock already
+    /// spent across: a clock half-used at 3.00 s is half-used at 2.85 s. Without the rescale a shrinking
+    /// deadline could drop beneath the elapsed time and fire the piece on the spot.</summary>
     private void SyncShotClockDeadline()
     {
-        double deadline = ConnateTuning.ShotClockDeadline(DifficultyIndex, ReliefActive);
+        double deadline = ConnateTuning.ShotClockDeadline(DifficultyIndex);
         if (Math.Abs(deadline - _shotClockDeadline) < 1e-9) return;
         _shotClockElapsed = Math.Clamp(_shotClockElapsed * deadline / Math.Max(1e-6, _shotClockDeadline), 0, deadline);
         _shotClockDeadline = deadline;
     }
+
+    /// <summary>The stage the last shout announced (a stage INDEX). Compared against <see cref="DifficultyIndex"/>
+    /// at the end of every playing step, so each rise is announced exactly once; a restore and a restart
+    /// re-anchor it without announcing.</summary>
+    private int _announcedStageIndex;
+    /// <summary>Seconds the "STAGE n" shout has left, so the renderer can fade it. Presentation only — a
+    /// resumed run never replays it.</summary>
+    public double StageShoutLeft { get; private set; }
+    /// <summary>The player-facing stage the live shout names. Meaningful only while
+    /// <see cref="StageShoutLeft"/> is above zero.</summary>
+    public int StageShoutStage { get; private set; }
+
+    /// <summary>Whether this run has already shouted "NEW BEST". Serialized, so a run resumed after passing the
+    /// best does not shout it again.</summary>
+    private bool _newBestShouted;
+    /// <summary>Seconds the "NEW BEST" shout has left. Presentation only.</summary>
+    public double NewBestShoutLeft { get; private set; }
     public int HighScore { get; private set; }
     public bool IsGameOver => Phase == Stage.GameOver;
 
@@ -194,13 +217,15 @@ public sealed class Connate : IArcadeGame
     public int BombCharge { get; private set; }
     /// <summary>Charge a full bomb costs right now: the base cost plus one step per stage index, so bombs get
     /// dearer as the run gets harder. Derived, like the stage; earned charge carries across a stage change.</summary>
-    public int BombChargeCost => Math.Max(1, ConnateTuning.BombChargePerBomb + ConnateTuning.BombChargePerStage * DifficultyIndex);
-    /// <summary>The dearest a bomb can be at the top stage: the snapshot's upper bound on stored charge, which
-    /// is checked before the restored bank (and so the stage) is known.</summary>
+    public int BombChargeCost => Math.Max(1, ConnateTuning.BombChargePerBomb
+        + ConnateTuning.BombChargePerStage * Math.Min(DifficultyIndex, ConnateTuning.BombCostMaximumSteps));
+    /// <summary>The dearest a bomb can be: the snapshot's upper bound on stored charge, which is checked before
+    /// the restored bank (and so the stage) is known.</summary>
     private static int MaximumBombChargeCost =>
-        Math.Max(1, ConnateTuning.BombChargePerBomb + ConnateTuning.BombChargePerStage * (ConnateTuning.StageCount - 1));
-    /// <summary>Bombs earned while one was already loaded, waiting their turn. Firing a bomb pulls the next
-    /// straight off this rather than handing back the displaced tile.</summary>
+        Math.Max(1, ConnateTuning.BombChargePerBomb
+            + ConnateTuning.BombChargePerStage * ConnateTuning.BombCostMaximumSteps);
+    /// <summary>Bombs earned but not yet on the rail. An earned bomb never displaces the numbered tile in the
+    /// craft: it waits here until that tile fires, then loads; each bomb fired loads the next from this count.</summary>
     public int PendingBombs { get; private set; }
     /// <summary>Merges since the last successful fire — the combo counter; reset by firing and nothing
     /// else.</summary>
@@ -208,12 +233,40 @@ public sealed class Connate : IArcadeGame
 
     // ── Board clear ──────────────────────────────────────────────────────────
     /// <summary>Whether the board has had anything on it since the last clear. Without this latch an
-    /// already-empty board would pay a clear bonus every frame.</summary>
+    /// already-empty board would start the boss-block encounter every frame.</summary>
     private bool _boardOccupied = true;
     /// <summary>Seconds the board-clear banner has left, so the renderer can fade it.</summary>
     public double BoardClearLeft { get; private set; }
-    /// <summary>What the most recent board clear paid, for the banner to name.</summary>
-    public long BoardClearBonus { get; private set; }
+
+    /// <summary>The boss-block encounter a board clear starts; <see cref="ConnateBossBlock.Active"/> for as long
+    /// as it lasts. The renderer reads it; only this class changes it.</summary>
+    public ConnateBossBlock BossBlock => _boss;
+    private readonly ConnateBossBlock _boss = new();
+    /// <summary>Reused by the encounter step so a bomb hit allocates nothing.</summary>
+    private readonly List<ConnateBossHit> _bossHits = [];
+    /// <summary>Stage numbers earned during an encounter and not yet shouted, ascending. Presentation only.</summary>
+    private readonly Queue<int> _owedStageShouts = new();
+
+    // ── Unlocked starts ──────────────────────────────────────────────────────
+    /// <summary>The unlocked start stages. Settings, not run state: it survives a restart and a finished run.</summary>
+    public ConnateStarts Starts => _starts;
+    private readonly ConnateStarts _starts = new();
+    /// <summary>The stage the current run began at: 1 for every start but a pause-menu START AT STAGE. It is the
+    /// pause row's current value and is not persisted, so Reset, AGAIN and a relaunch all read 1.</summary>
+    public int StartStage { get; private set; } = 1;
+    private bool _settingsDirty;
+
+    /// <summary>Whether the persisted settings changed since last asked — a start unlocked. The host writes them
+    /// straight away when it is true, so a hard kill cannot take an unlock back. Read once: it clears.</summary>
+    public bool TakeSettingsDirty() { bool dirty = _settingsDirty; _settingsDirty = false; return dirty; }
+
+    /// <summary>True while the rail cannot fire: a block is landing, or the last bomb has gone and the block is
+    /// breaking. The renderer drops the aim guide and the shot clock for it.</summary>
+    public bool FireLocked => _boss.Active && !(_boss.Phase == ConnateBossPhase.Fight && HeldIsBomb);
+
+    /// <summary>True when the encounter has taken the piece off the rail and nothing has replaced it: the loaded
+    /// tile has shattered and the last bomb is away. The preserved NEXT returns when the block breaks.</summary>
+    public bool RailEmpty => _boss.Active && _boss.Shattered && !HeldIsBomb;
 
     /// <summary>Phase of the over-limit warning pulse, in radians, for the renderer to take a sine of.
     ///
@@ -231,7 +284,8 @@ public sealed class Connate : IArcadeGame
     public double BombDeliveryProgress => BombDeliveryLeft <= 0 ? 1
         : 1 - Math.Clamp(BombDeliveryLeft / Math.Max(0.05, ConnateTuning.BombDeliverySeconds), 0, 1);
     public bool BombDelivering => BombDeliveryLeft > 0;
-    /// <summary>A tile was displaced to make room for a gifted bomb and is waiting to come back.</summary>
+    /// <summary>The tile that was NEXT when a bomb loaded is parked behind it and comes back to the rail once
+    /// the last bomb has fired.</summary>
     public bool HasQueuedTile => _queuedRank >= 0;
 
     /// <summary>Value that has actually landed in the counter, i.e. the score. Only collected motes
@@ -279,26 +333,6 @@ public sealed class Connate : IArcadeGame
         }
     }
 
-    /// <summary>The launcher winds itself as the deadline closes: 0 until the clock's last
-    /// <see cref="ConnateTuning.FullChargeSeconds"/>, then 0→1 across exactly that stretch, so an automatic
-    /// shot takes as long to wind as a manual full draw and leaves on a bow that is genuinely at full tension.
-    /// ✕ is not consulted — the point is that the craft visibly prepares to fire whether or not the player is
-    /// doing anything.
-    ///
-    /// <para>⚠ Zero while a bomb is loaded, for free — a bomb is off the shot clock entirely
-    /// (<c>_shotClockElapsed</c> is pinned at 0), so nothing spends it and nothing winds. <see cref="Fire"/>
-    /// takes the greater of this and the player's own charge as the launch tension, so what springs forward is
-    /// always what was drawn back; a deadline shot must not be read as an undrawn one — see
-    /// <see cref="ShotDrawTension"/>.</para></summary>
-    public double AutoWindCharge
-    {
-        get
-        {
-            double window = Math.Max(1e-3, ConnateTuning.FullChargeSeconds);
-            double left = Math.Max(0, _shotClockDeadline - _shotClockElapsed);
-            return Math.Clamp(1 - left / window, 0, 1);
-        }
-    }
     public long HeldValue => HeldIsBomb ? 0 : ConnateRules.ValueForRank(HeldRank);
     // Garbage carries a placeholder Rank=0 for compact storage but must never unlock feed tiers.
     public int HighestRank => _bodies.Where(body => !body.IsGarbage)
@@ -353,11 +387,40 @@ public sealed class Connate : IArcadeGame
     /// that sets it; it defaults off.</summary>
     public bool RadialAiming { get; private set; }
 
-    public IReadOnlyList<ArcadePauseOption> PauseOptions =>
-        [new("radial", Loc.T(UiText.Arcade.RadialControls), [Loc.T(UiText.Arcade.Off), Loc.T(UiText.Arcade.On)], RadialAiming ? 1 : 0)];
+    /// <summary>The pause-menu key of the START AT STAGE row.</summary>
+    public const string StartKey = "start";
 
-    /// <summary>The △ card. It carries the two rules a new player actually stumbles on and that nothing on
-    /// the board states: which pieces may merge, and that a chain in a single shot is what earns a bomb.
+    /// <summary>RADIAL CONTROLS always; START AT STAGE only once a start beyond stage 1 is unlocked, offering
+    /// exactly the unlocked starts, as an action row (<see cref="ArcadePauseOption.StartsOnConfirm"/>). Its value is
+    /// the stage the current run began at.</summary>
+    public IReadOnlyList<ArcadePauseOption> PauseOptions
+    {
+        get
+        {
+            var radial = new ArcadePauseOption("radial", Loc.T(UiText.Arcade.RadialControls),
+                [Loc.T(UiText.Arcade.Off), Loc.T(UiText.Arcade.On)], RadialAiming ? 1 : 0);
+            if (_starts.Highest <= 1) return [radial];
+            int[] offered = _starts.Offered();
+            return [radial, new ArcadePauseOption(StartKey, Loc.T(UiText.Arcade.StartAtStage),
+                [.. offered.Select(stage => stage.ToString(System.Globalization.CultureInfo.InvariantCulture))],
+                Math.Max(0, Array.IndexOf(offered, StartStage)), StartsOnConfirm: true)];
+        }
+    }
+
+    /// <summary>✕ on the row starts a new run, so over a live run it asks the question Reset asks — at the stage the
+    /// run already began at too, which is still a new run. A board with nothing banked has nothing to lose.</summary>
+    public string? ConfirmPauseOption(string key, int choice)
+    {
+        if (!string.Equals(key, StartKey, StringComparison.OrdinalIgnoreCase)) return null;
+        int[] offered = _starts.Offered();
+        if (choice < 0 || choice >= offered.Length) return null;
+        bool inProgress = (Phase == Stage.Playing || Phase == Stage.LimitBreach) && CollectedScore > 0;
+        return inProgress ? Loc.T(UiText.Arcade.EndsRun) : null;
+    }
+
+    /// <summary>The △ card. It teaches the rules nothing on the board states: the tap and the slam, which
+    /// pieces merge, what earns and loads a bomb, garbage, the shot clock and the stages, the boss block, and
+    /// the boundary.
     ///
     /// <para>Copy is author-editable — see docs/ARCADE.md. ⚠ Keep the bullets short: they wrap, and a wrap
     /// pushes every row below it down. <c>TestHarness.exe arcade</c> fails if the card stops fitting.</para></summary>
@@ -367,28 +430,60 @@ public sealed class Connate : IArcadeGame
         new(Loc.T(UiText.Arcade.ConnateHow2), "merge"),
         new(Loc.T(UiText.Arcade.ConnateHow3), "families"),
         new(Loc.T(UiText.Arcade.ConnateHow4), "bomb"),
-        new(Loc.T(UiText.Arcade.ConnateHow5), "limit"),
+        new(Loc.T(UiText.Arcade.ConnateHow5), "garbage"),
+        new(Loc.T(UiText.Arcade.ConnateHow6), "clock"),
+        new(Loc.T(UiText.Arcade.ConnateHow7), "limit"),
     ]);
 
     public void ApplyPauseOption(string key, int choice)
     {
+        if (string.Equals(key, StartKey, StringComparison.OrdinalIgnoreCase))
+        {
+            int[] offered = _starts.Offered();
+            if (choice < 0 || choice >= offered.Length) return;
+            // Stage 1 is Reset, intro card and all; a later stage goes straight in, seeded.
+            if (offered[choice] <= 1) RestartRound(); else RestartRound(offered[choice]);
+            return;
+        }
         if (!string.Equals(key, "radial", StringComparison.OrdinalIgnoreCase)) return;
         RadialAiming = choice == 1;
         _rimVelocity = 0;   // the two models don't share state; carrying speed across would lurch the craft
     }
 
-    private sealed record SettingsSnap(bool Radial);
+    /// <summary>The per-game store: the aiming model, then the highest unlocked start. The appended field
+    /// defaults, so a blob from before unlocks reads as "none recorded" and the unlock is derived once from the
+    /// best score. Fields an older build wrote beside it are ignored.</summary>
+    private sealed record SettingsSnap(bool Radial, int Unlocked = 1);
 
-    public string? SerializeSettings() => JsonSerializer.Serialize(new SettingsSnap(RadialAiming));
+    public string? SerializeSettings() =>
+        JsonSerializer.Serialize(new SettingsSnap(RadialAiming, _starts.Highest));
 
+    /// <summary>Read field by field rather than through a record, so one hostile value costs only itself: a
+    /// stored unlock that is not a start stage reads as 1 without taking the aiming model with it.</summary>
     public void RestoreSettings(string json)
     {
-        try { RadialAiming = JsonSerializer.Deserialize<SettingsSnap>(json)?.Radial ?? false; }
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(json);
+            JsonElement root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Object) return;
+            RadialAiming = root.TryGetProperty("Radial", out JsonElement radial) && radial.ValueKind == JsonValueKind.True;
+            // Absent or null = never recorded (derive from the best); present but not an int = hostile (1).
+            int? unlocked = null;
+            if (root.TryGetProperty("Unlocked", out JsonElement stored) && stored.ValueKind != JsonValueKind.Null)
+                unlocked = stored.ValueKind == JsonValueKind.Number && stored.TryGetInt32(out int value) ? value : -1;
+            _starts.Load(unlocked);
+        }
         catch (JsonException ex) { Trace.WriteLine($"[Arcade] Connate: settings snapshot unreadable: {ex.Message}"); }
-        catch (NotSupportedException ex) { Trace.WriteLine($"[Arcade] Connate: settings snapshot unreadable: {ex.Message}"); }
+        catch (InvalidOperationException ex) { Trace.WriteLine($"[Arcade] Connate: settings snapshot unreadable: {ex.Message}"); }
     }
 
-    public void SeedHighScore(int high) { if (high > HighScore) HighScore = high; }
+    public void SeedHighScore(int high)
+    {
+        if (high > HighScore) HighScore = high;
+        // A player whose settings predate unlocks already earned them: derive the unlock from the best, once.
+        _starts.SeedFromBest(Math.Max(0, high));
+    }
 
     /// <summary>Advances logical time. The order is load-bearing: age presentation, handle terminal states,
     /// move the craft, accept/auto-fire, schedule garbage, simulate physics/merges, then evaluate the
@@ -397,7 +492,10 @@ public sealed class Connate : IArcadeGame
     {
         if (!double.IsFinite(dt) || dt <= 0) return;
         dt = Math.Min(dt, 0.05);
+        double phaseBefore = PhaseTime;
         PhaseTime += dt;
+        StageShoutLeft = Math.Max(0, StageShoutLeft - dt);
+        NewBestShoutLeft = Math.Max(0, NewBestShoutLeft - dt);
         _fireCooldown = Math.Max(0, _fireCooldown - dt);
         _sinceFire = Math.Min(RecoilCap, _sinceFire + dt);
         _chainTimeLeft = Math.Max(0, _chainTimeLeft - dt);
@@ -471,7 +569,11 @@ public sealed class Connate : IArcadeGame
         if (Phase == Stage.LimitBreach)
         {
             StepPhysics(dt * 0.25);
-            if (PhaseTime >= ConnateTuning.LimitBreachSeconds) SetPhase(Stage.GameOver);
+            // The final countdown holds while a merge is pending or its chain window is open, so a chain that is
+            // still resolving can finish before the run ends. Physics and the chain window keep running, which
+            // is what lets the hold lift.
+            if (ContainmentProtected) PhaseTime = phaseBefore;
+            else if (PhaseTime >= ConnateTuning.LimitBreachSeconds) SetPhase(Stage.GameOver);
             return;
         }
 
@@ -483,6 +585,8 @@ public sealed class Connate : IArcadeGame
             {
                 SetPhase(Stage.Playing);
                 _shotClockElapsed = 0;
+                // The ✕ that skipped the intro may still be down; its hold began before the board was live.
+                _pressConsumed = input.CrossDown;
             }
             return;
         }
@@ -494,19 +598,12 @@ public sealed class Connate : IArcadeGame
         // otherwise a fast enough tap is a shot that never leaves. Manual fire still gets first refusal on the
         // deadline frame, and a blocked attempt leaves the clock full so later steps can retry safely without
         // consuming the held piece or advancing cadence counters.
-        bool wasHeld = _fireHeld;
-        _fireHeld = input.CrossDown;
-        // Zeroed on the down edge only, so the wind-up plays once and then simply stays wound however long
-        // the trigger is held.
-        if (_fireHeld && !wasHeld) _sinceHold = 0;
-        else if (_fireHeld) _sinceHold = Math.Min(RecoilCap, _sinceHold + dt);
-        // ⚠ The charge is read from the hold clock, and a whole tap reported in one frame never had a down
-        // edge for that clock to start from — _sinceHold is still whatever the last real hold left. Such a tap
-        // charges nothing, by definition, so it must not inherit that number.
-        bool fired = !input.CrossDown && (wasHeld || input.CrossPressed)
-            && Fire(wasHeld ? _sinceHold : 0);
-        // The deadline follows the stage and the relief window; PhaseTime moved above, so a relief boundary
-        // crossed this step is seen before the clock is spent against it.
+        if (_boss.Active)
+        {
+            StepEncounter(input, dt);
+            return;
+        }
+        bool fired = StepFireInput(input, dt);
         SyncShotClockDeadline();
         // A loaded bomb is not on the clock: a bomb's value is entirely in where it lands, so no timer spends
         // it for the player. Pinned at zero rather than paused, so the arc reads as off, not frozen mid-sweep.
@@ -514,7 +611,18 @@ public sealed class Connate : IArcadeGame
         else if (!fired)
         {
             _shotClockElapsed = Math.Min(_shotClockDeadline, _shotClockElapsed + dt);
-            if (_shotClockElapsed >= _shotClockDeadline) Fire();
+            if (_shotClockElapsed >= _shotClockDeadline)
+            {
+                // The deadline shot is charged only if ✕ is down with the charge already complete; otherwise it
+                // is a normal shot. Either way a press that was down when the clock spent the piece is consumed,
+                // or its later release would fire the next piece the player never aimed.
+                bool holding = _fireHeld;
+                if (Fire(holding && HoldIsFullCharge(_sinceHold), holding ? DrawTension(_sinceHold) : 0) && holding)
+                {
+                    _fireHeld = false;
+                    _pressConsumed = true;
+                }
+            }
         }
         StepGarbageSpawner(dt);
         StepPhysics(dt);
@@ -522,35 +630,222 @@ public sealed class Connate : IArcadeGame
         // Banked value may have moved in the two calls above; re-synced here so the readout and the next
         // step's clock agree within this frame rather than one step late.
         SyncShotClockDeadline();
-        StepSizeLimit(dt);
+        // The encounter a clear just began has no containment to run: the board is empty and the fuse is spent.
+        if (!_boss.Active) StepSizeLimit(dt);
+        if (Phase == Stage.Playing) AnnounceProgress();
     }
 
-    /// <summary>Emptying the field pays a multiplier on the whole run.
+    /// <summary>Reads the fire button: winds the bow while it is held and releases the shot when it goes up.
+    /// Returns whether a shot left.</summary>
+    private bool StepFireInput(in ArcadeInput input, double dt)
+    {
+        bool wasHeld = _fireHeld;
+        if (!input.CrossDown || input.CrossPressed) _pressConsumed = false;
+        _fireHeld = input.CrossDown && !_pressConsumed;
+        // Zeroed on the down edge only, so the wind-up plays once and then simply stays wound however long
+        // the trigger is held.
+        if (_fireHeld && !wasHeld) _sinceHold = 0;
+        else if (_fireHeld) _sinceHold = Math.Min(RecoilCap, _sinceHold + dt);
+        // ⚠ The charge is read from the hold clock, and a whole tap reported in one frame never had a down
+        // edge for that clock to start from — _sinceHold is still whatever the last real hold left. Such a tap
+        // is a normal shot, by definition, so it must not inherit that number.
+        bool released = !input.CrossDown && (wasHeld || input.CrossPressed);
+        return released && Fire(wasHeld && HoldIsFullCharge(_sinceHold), wasHeld ? DrawTension(_sinceHold) : 0);
+    }
+
+    /// <summary>One step of the boss-block encounter. Only the fight takes the fire button, and only for the
+    /// bombs; the shot clock, the garbage spawner, the heap physics, containment and the stage are all stopped,
+    /// and the block moves the bombs itself.
     ///
-    /// <para>⚠ The base is the BANKED total (<see cref="ExplodedValue"/>), which already holds motes still in
-    /// flight: a clear is triggered by the very explosion that launched them, and a base of what has landed
-    /// would be momentarily near zero. The bonus banks too, so it counts toward the stage and survives a
-    /// restore, and it is collected at once — adding to <see cref="CollectedScore"/> while motes travel is safe
-    /// because arrival only ever adds. <c>Math.Round</c> is half-to-even, so an odd base rounds to the even
-    /// neighbour.</para></summary>
+    /// <para>⚠ A press made while the block is falling or landing is spent: it neither winds the bow nor fires
+    /// on release, and the release is refused with the guarded cue. A hold already in progress when the board
+    /// cleared is treated the same way.</para></summary>
+    private void StepEncounter(in ArcadeInput input, double dt)
+    {
+        if (FireLocked)
+        {
+            bool wasHeld = _fireHeld;
+            if (!input.CrossDown && (wasHeld || _pressConsumed || input.CrossPressed)) RaiseGuarded();
+            _fireHeld = false;
+            _pressConsumed = input.CrossDown;
+            _sinceHold = RecoilCap;
+        }
+        else StepFireInput(input, dt);
+
+        _shotClockElapsed = 0;
+        var context = new ConnateBossContext(
+            HeldIsBomb ? ConnateTuning.BombRadius : ConnateTuning.RadiusForRank(HeldRank),
+            HeldIsBomb, BombDelivering, TotalBombs);
+        _bossHits.Clear();
+        ConnateBossEvent events = _boss.Step(dt, context, _bombProjectiles, _bossHits);
+
+        foreach (ConnateBossHit hit in _bossHits) PayBossHit(hit);
+        if ((events & ConnateBossEvent.ShatterHeld) != 0) ShatterHeldPiece();
+        if ((events & ConnateBossEvent.Ended) != 0) EndEncounter();
+    }
+
+    /// <summary>Raises the stage-up shout once per rise in <see cref="DifficultyIndex"/> and the mid-run
+    /// "NEW BEST" shout the first time the collected score passes the best recorded before this run.
+    ///
+    /// <para>⚠ The best compared against is <see cref="HighScore"/>, which only moves when a run ends or the
+    /// host seeds it, so it IS the run-start best for as long as play is live. A best of zero never counts —
+    /// the first run has no record to beat, and shouting on its first mote would be noise.</para></summary>
+    private void AnnounceProgress()
+    {
+        int stage = DifficultyIndex;
+        if (stage > _announcedStageIndex)
+        {
+            StageShoutStage = stage + 1;
+            StageShoutLeft = ConnateTuning.StageShoutSeconds;
+            RecordRise(_announcedStageIndex + 1, stage + 1);
+        }
+        _announcedStageIndex = stage;
+
+        if (!_newBestShouted && HighScore > 0 && ConnateRules.HostScore(CollectedScore) > HighScore)
+        {
+            _newBestShouted = true;
+            NewBestShoutLeft = ConnateTuning.NewBestShoutSeconds;
+            _cues |= Cue.NewBest;
+        }
+
+        // The stage-ups an encounter owed are shouted one after another, lowest first.
+        PopOwedStageShout();
+    }
+
+    /// <summary>The run has risen from stage <paramref name="from"/> to stage <paramref name="to"/> (player-facing
+    /// numbers). Every start stage it passes is unlocked, silently. A rise is the only thing that earns one: a run
+    /// that starts at an unlocked stage rises past nothing.</summary>
+    private void RecordRise(int from, int to)
+    {
+        foreach (int start in ConnateStarts.Stages)
+        {
+            if (start <= from || start > to) continue;
+            if (_starts.Reach(start)) _settingsDirty = true;
+        }
+    }
+
+    /// <summary>True while a merge is pending (its anticipation included) or the chain-continuation window is
+    /// open. Containment pressure pauses for exactly this long: the size fuse neither rises nor starts a
+    /// breach, the body-cap shortcut waits, and a breach already under way holds its final countdown. The fuse
+    /// is retained rather than reset, and recovery still drains it while the cluster is inside the limit.
+    /// A chain depth left over from a chain that has expired protects nothing.</summary>
+    public bool ContainmentProtected =>
+        _pendingMerges.Count > 0 || (_chainDepth > 0 && _chainTimeLeft > 0);
+
+    /// <summary>Emptying the field starts the boss-block encounter, once per emptying.
+    ///
+    /// <para>⚠ The reward's base is the BANKED total (<see cref="ExplodedValue"/>), which already holds motes
+    /// still in flight: a clear is triggered by the very explosion that launched them, and a base of what has
+    /// landed would be momentarily near zero.</para></summary>
     private void CheckBoardClear()
     {
         if (_bodies.Count > 0) { _boardOccupied = true; return; }
         if (!_boardOccupied) return;
         _boardOccupied = false;
+        BeginEncounter();
+    }
 
-        long banked = ExplodedValue;
-        long bonus = (long)Math.Round(banked * (Math.Max(1.0, ConnateTuning.BoardClearMultiplier) - 1.0));
-        if (bonus > 0)
+    /// <summary>The board has just emptied. Firing locks, everything in flight is dropped, the clocks stop, a
+    /// bomb is added (to the three-bomb total) and the encounter's reward and stage are fixed.</summary>
+    private void BeginEncounter()
+    {
+        int stage = DifficultyIndex;
+        long reward = ConnateBossBlock.RewardFor(ExplodedValue, stage);
+        if (TotalBombs < ConnateTuning.MaximumBombs)
         {
-            ExplodedValue = ConnateRules.SaturatingAdd(ExplodedValue, bonus);
-            CollectedScore = ConnateRules.SaturatingAdd(CollectedScore, bonus);
+            PendingBombs++;
+            _cues |= Cue.BombEarned;
         }
-
-        BoardClearBonus = bonus;
+        // Bombs already in flight and merges still reserving bodies are not part of the encounter.
+        _bombProjectiles.Clear();
+        _pendingMerges.Clear();
+        SizeFuse = 0;
+        _warningLatched = false;
+        _shotClockElapsed = 0;
+        ComboDisplayLeft = 0;
+        _owedStageShouts.Clear();
+        _boss.Begin(reward, TotalBombs, stage);
         BoardClearLeft = ConnateTuning.BoardClearDisplaySeconds;
-        // Announced even when the bonus rounds to nothing: the clear itself is the event.
         _cues |= Cue.BoardClear;
+    }
+
+    /// <summary>The landing ring has reached the loaded piece. A numbered tile shatters and the first waiting
+    /// bomb comes in through the ordinary delivery, with NEXT parked behind it; a bomb already loaded stays.</summary>
+    private void ShatterHeldPiece()
+    {
+        double sine = Math.Sin(PlayerAngle), cosine = Math.Cos(PlayerAngle);
+        if (!HeldIsBomb)
+        {
+            _bombExplosions.Add(new ConnateBombExplosion(
+                sine * ConnateTuning.LaunchRadius, -cosine * ConnateTuning.LaunchRadius, HeldRank, 0));
+            if (PendingBombs > 0) LoadPendingBomb();
+        }
+    }
+
+    /// <summary>A bomb has reached the block. The hit banks at once and pays through the ordinary gold motes
+    /// (deterministic, no draw), blasts at the contact point, and the block's own state — cracks, flash, kick —
+    /// has already moved.</summary>
+    private void PayBossHit(ConnateBossHit hit)
+    {
+        long reward = _boss.Reward;
+        ExplodedValue = ConnateRules.SaturatingAdd(ExplodedValue, reward);
+        SpawnScoreMotes(hit.BombId, ConnateTuning.BossMoteRank, reward, _boss.X, _boss.Y);
+        _bombExplosions.Add(new ConnateBombExplosion(hit.X, hit.Y, ConnateTuning.BossHitBlastRank, 0));
+        _cues |= Cue.BombExplode;
+    }
+
+    /// <summary>The fragments have gone. Play resumes as a fresh run's board would: the preserved NEXT is on the
+    /// rail, the shot clock is new, and an opening blob sits at the centre with a new garbage interval. The stage
+    /// the hits earned is released last, and every stage-up it owes is shouted in ascending order.</summary>
+    private void EndEncounter()
+    {
+        int captured = _boss.CapturedStage;
+        _boss.Clear();
+        HeldIsBomb = false;
+        if (_queuedRank >= 0)
+        {
+            HeldRank = _queuedRank;
+            HeldHue = _queuedHue;
+            _queuedRank = -1;
+            _queuedHue = ConnateRules.HueAzure;
+        }
+        else DrawNextHeld();
+        BombDeliveryLeft = 0;
+        _shotClockElapsed = 0;
+        _garbageTimeLeft = DrawGarbageInterval();
+        SeedOpeningGarbage();
+        _boardOccupied = true;
+
+        int reached = DifficultyIndex;
+        for (int index = captured + 1; index <= reached; index++) _owedStageShouts.Enqueue(index + 1);
+        // The encounter's own hits can pass a start stage the clear itself did not.
+        RecordRise(captured + 1, reached + 1);
+        _announcedStageIndex = Math.Max(_announcedStageIndex, reached);
+        PopOwedStageShout();
+        SyncShotClockDeadline();
+    }
+
+    private void PopOwedStageShout()
+    {
+        if (StageShoutLeft > 0 || !_owedStageShouts.TryDequeue(out int stage)) return;
+        StageShoutStage = stage;
+        StageShoutLeft = ConnateTuning.StageShoutSeconds;
+    }
+
+    /// <summary>Starting at stage N banks exactly that stage's threshold, so the run opens at N with N's pace and
+    /// price and the score already stands there. It counts toward the best from the first step, which also keeps
+    /// the mid-run NEW BEST from firing on a score the player is handed. Nothing is announced: the run did not
+    /// rise to this stage.</summary>
+    private void SeedStart(int stage)
+    {
+        long threshold = ConnateTuning.StageThresholdFor(stage);
+        if (threshold <= 0) return;
+        ExplodedValue = threshold;
+        CollectedScore = threshold;
+        DisplayedScore = threshold;
+        _announcedStageIndex = DifficultyIndex;
+        SyncShotClockDeadline();
+        HighScore = Math.Max(HighScore, ConnateRules.HostScore(threshold));
     }
 
     /// <summary>The drawn score chases the real one. A proportional chase with a floor rather than a fixed
@@ -591,29 +886,29 @@ public sealed class Connate : IArcadeGame
         if (Math.Abs(Wrap(PlayerAngle - old)) > 0.002) _cues |= Cue.Move;
     }
 
-    /// <summary>How hard a shot leaves the craft, as a fraction of <see cref="ConnateTuning.LaunchSpeed"/>,
-    /// for a release that held ✕ for <paramref name="chargeSeconds"/>. Infinity is a forced shot — the shot
-    /// clock, or a restore — and launches at full force.</summary>
-    private static double LaunchScale(double chargeSeconds)
-    {
-        if (double.IsNaN(chargeSeconds)) return 1;
-        double tap = Math.Clamp(ConnateTuning.TapLaunchFraction, 0.05, 1);
-        double t = Math.Clamp(chargeSeconds / Math.Max(1e-3, ConnateTuning.FullChargeSeconds), 0, 1);
-        return tap + (1 - tap) * t;
-    }
+    /// <summary>Has a hold of <paramref name="holdSeconds"/> reached a full charge? The only thing a hold's
+    /// length decides: below it the release is a normal shot, at or past it a slam, and nothing longer adds
+    /// anything.</summary>
+    private static bool HoldIsFullCharge(double holdSeconds) =>
+        holdSeconds >= ConnateTuning.FullChargeSeconds - ConnateTuning.FullChargeEpsilon;
+
+    /// <summary>How far the bow is drawn after a hold of <paramref name="holdSeconds"/>, 0..1 — the same ramp
+    /// the renderer draws while ✕ is down.</summary>
+    private static double DrawTension(double holdSeconds) =>
+        Math.Clamp(holdSeconds / Math.Max(1e-3, ConnateTuning.FullChargeSeconds), 0, 1);
 
     /// <summary>Attempts one committed shot. Returns false only for cooldown/body-cap/muzzle obstruction.
     ///
-    /// <para><paramref name="chargeSeconds"/> is how long ✕ was held before the release that fired this shot,
-    /// which scales the launch speed through <see cref="LaunchScale"/>. The default is a forced shot at full
-    /// force — a deadline the shot clock spent for the player is not a choice a ramp can read.
-    /// ⚠ Bombs ignore it: a bomb's whole job is to reach the spot it was aimed at, and one lobbed short is a
-    /// wasted earn rather than a soft touch.</para></summary>
-    private bool Fire(double chargeSeconds = double.PositiveInfinity)
+    /// <para><paramref name="charged"/> launches a numbered tile at
+    /// <see cref="ConnateTuning.ChargedLaunchMultiplier"/> times <see cref="ConnateTuning.LaunchSpeed"/> and
+    /// flags the body (see <see cref="ConnateBody.Charged"/>). <paramref name="drawTension"/> is how far the
+    /// bow was actually drawn, for the release spring. ⚠ Bombs ignore charge: a bomb's whole job is to reach
+    /// the spot it was aimed at, at its fixed speed.</para></summary>
+    private bool Fire(bool charged, double drawTension)
     {
         // Refused here rather than at the call sites, so the auto-fire path also can't spend a bomb still in
         // flight from the meter.
-        if (BombDelivering) { RaiseGuarded(); return false; }
+        if (BombDelivering || FireLocked) { RaiseGuarded(); return false; }
         if (_fireCooldown > 0 || (!HeldIsBomb && _bodies.Count >= ConnateTuning.MaximumBodies))
         {
             RaiseGuarded();
@@ -657,13 +952,13 @@ public sealed class Connate : IArcadeGame
         {
             // Firing a numbered tile ends immunity only once the floor has also run out; StepSizeLimit reads both.
             SizeLimitImmune = false;
-            double launch = ConnateTuning.LaunchSpeed * LaunchScale(chargeSeconds);
+            double launch = ConnateTuning.LaunchSpeed * (charged ? ConnateTuning.ChargedLaunchMultiplier : 1);
             _bodies.Add(new ConnateBody
             {
                 Id = _nextBodyId++, Rank = HeldRank, X = x, Y = y, Hue = HeldHue,
                 VelocityX = -outwardX * launch,
                 VelocityY = -outwardY * launch,
-                SizeArmed = false, ShotId = shotId,
+                SizeArmed = false, ShotId = shotId, Charged = charged,
                 // Only ranks 0-1 spin; direction alternates with the shot id so shots don't look copy-pasted.
                 SpinRate = HeldRank <= 1
                     ? (shotId % 2 == 0 ? 1 : -1) * ConnateTuning.PieceSpinRevsPerSec * Math.PI * 2
@@ -672,46 +967,61 @@ public sealed class Connate : IArcadeGame
         }
         _fireCooldown = ConnateTuning.FireCooldownSeconds;
         _sinceFire = 0;
-        // The greater of what the player drew and what the deadline wound for them — the launcher winds
-        // itself as the clock runs out, so a forced shot leaves on a bow at full tension rather than one
-        // nobody touched, and a player who releases mid-wind gets whichever was deeper. Infinity (a forced
-        // shot) contributes nothing of its own; AutoWindCharge is the whole of its tension.
-        // ⚠ Must be read before the clock is reset on the next line, or the wind is always 0.
-        double drawn = double.IsPositiveInfinity(chargeSeconds) || double.IsNaN(chargeSeconds)
-            ? 0
-            : Math.Clamp(chargeSeconds / Math.Max(1e-3, ConnateTuning.FullChargeSeconds), 0, 1);
-        _shotDrawTension = Math.Max(drawn, AutoWindCharge);
+        // What the bow was actually at, not the shot's power: a deadline shot with ✕ up was never drawn, and a
+        // deadline shot mid-hold springs from the draw the player had built.
+        _shotDrawTension = Math.Clamp(drawTension, 0, 1);
         _shotClockElapsed = 0;
         // This reset defines "between shots" and is the only thing that clears the combo count.
         _mergesSinceShot = 0;
         ComboCount = 0;
-        // Bombs are earned, not interleaved into the feed by shot count (see AwardCombo). What follows a fired
-        // bomb is whatever the bomb displaced, if anything, and otherwise a fresh draw.
+        // Bombs are earned, not interleaved into the feed by shot count (see AwardCombo), and an earned bomb
+        // waits for the numbered tile in the craft to fire rather than displacing it.
         if (HeldIsBomb)
         {
-            // A queued bomb goes straight back on the rail; the displaced tile keeps waiting behind it.
-            if (PendingBombs > 0) PendingBombs--;
+            // The next earned bomb loads straight away, behind the same parked tile; the last one hands the
+            // rail back to that tile, or to a fresh draw when nothing was parked.
+            if (PendingBombs > 0) LoadPendingBomb();
             else
             {
                 HeldIsBomb = false;
-                if (_queuedRank >= 0) { HeldRank = _queuedRank; HeldHue = _queuedHue; _queuedRank = -1; }
-                else { DrawNextHeld(); }
+                // During the boss-block encounter the rail stays empty until the block breaks, so the
+                // preserved NEXT is not handed over mid-fight (EndEncounter returns it).
+                if (!_boss.Active)
+                {
+                    if (_queuedRank >= 0) { HeldRank = _queuedRank; HeldHue = _queuedHue; _queuedRank = -1; }
+                    else { DrawNextHeld(); }
+                }
             }
         }
+        else if (PendingBombs > 0) LoadPendingBomb();
         else { DrawNextHeld(); }
         _cues |= Cue.Fire;
         return true;
     }
 
+    /// <summary>Puts the next earned bomb on the rail, after the numbered tile (or the bomb) that was in the
+    /// craft has fired. The tile that was NEXT is parked behind it — NEXT is preserved, never spent on a
+    /// bomb — and the preview is refilled from the feed, which is the same single draw the unbombed reload
+    /// makes. The bomb flies in from the meter and cannot be fired until it lands.</summary>
+    private void LoadPendingBomb()
+    {
+        if (_queuedRank < 0)
+        {
+            if (_nextRank < 0) DrawNextTile();
+            _queuedRank = _nextRank;
+            _queuedHue = _nextHue;
+            DrawNextTile();
+        }
+        PendingBombs--;
+        HeldIsBomb = true;
+        BombDeliveryLeft = ConnateTuning.BombDeliverySeconds;
+    }
+
     private void StepGarbageSpawner(double dt)
     {
         // Garbage timing uses active Playing time only. If the hard body safety cap is full, postpone rather than
-        // silently losing the scheduled pressure piece or forcing it into an invalid spawn.
-        //
-        // Relief PAUSES the countdown outright — the stall that forbids pausing it for a held bomb (below) can't
-        // happen here, because relief ends on the clock whatever the player does. The stage scales how fast the
-        // stored countdown is consumed; the 10–30 s draw itself never changes.
-        if (ReliefActive) return;
+        // silently losing the scheduled pressure piece or forcing it into an invalid spawn. The stage scales how
+        // fast the stored countdown is consumed; the 10–30 s draw itself never changes.
         _garbageTimeLeft -= dt / ConnateTuning.GarbageCountdownScale(DifficultyIndex);
         if (_garbageTimeLeft > 0) return;
         // Nothing arrives while a bomb is loaded: a bomb has no shot clock either, so the player is being
@@ -807,8 +1117,8 @@ public sealed class Connate : IArcadeGame
         if (_mergesSinceShot > 1) AwardCombo(x, y);
     }
 
-    /// <summary>One combo — bump the on-screen counter, add charge, and gift a bomb when the charge fills.
-    /// The gift is automatic; the displaced tile is queued and handed straight back after the bomb.</summary>
+    /// <summary>One combo — bump the on-screen counter, add charge, and earn a bomb when the charge fills.
+    /// The bomb is automatic, and waits as pending until the tile in the craft has fired.</summary>
     private void AwardCombo(double x = 0, double y = 0)
     {
         // The raw merge count, so the second merge reads "COMBO ×2"; the first never awards.
@@ -829,22 +1139,14 @@ public sealed class Connate : IArcadeGame
         _cues |= Cue.ComboStep;
         if (!completes) return;
 
-        // Charge that fills while a bomb is already loaded queues extra bombs rather than stalling at full.
+        // An earned bomb waits: the numbered tile in the craft is the player's shot, and a bomb yanking it away
+        // mid-aim is the thing this avoids. It loads when that tile fires (see Fire).
         // A loop, because an exponential award can cross the threshold more than once: at ×5 a single merge
         // pays eight, which is more than one bomb's worth.
         while (BombCharge >= cost && TotalBombs < ConnateTuning.MaximumBombs)
         {
             BombCharge -= cost;
-            if (!HeldIsBomb)
-            {
-                _queuedRank = HeldRank;
-                _queuedHue  = HeldHue;
-                HeldIsBomb  = true;
-                // Only the bomb that actually lands in the payload gets the flight; queued ones are already
-                // represented beside the meter and would otherwise all fly at once.
-                BombDeliveryLeft = ConnateTuning.BombDeliverySeconds;
-            }
-            else PendingBombs++;
+            PendingBombs++;
         }
         // At the cap the leftover charge is held just under a full meter rather than discarded.
         if (TotalBombs >= ConnateTuning.MaximumBombs)
@@ -858,7 +1160,8 @@ public sealed class Connate : IArcadeGame
     public static int ChargeForCombo(int comboCount) =>
         comboCount < 2 ? 0 : 1 << Math.Min(comboCount - 2, 20);
 
-    /// <summary>Bombs the player is holding, loaded plus queued; the cap is a total, not a per-slot one.</summary>
+    /// <summary>Bombs the player has earned and not yet fired, loaded plus pending; the cap is a total, not a
+    /// per-slot one.</summary>
     public int TotalBombs => (HeldIsBomb ? 1 : 0) + PendingBombs;
 
     /// <summary><paramref name="garbageEvents"/> collects every garbage blob a detonation sweeps, so it
@@ -1024,7 +1327,11 @@ public sealed class Connate : IArcadeGame
             _warningLatched = false;
             return;
         }
-        if (_bodies.Count >= ConnateTuning.MaximumBodies)
+        // A merge in progress or a live chain suspends every way of losing: the fuse holds where it is, the
+        // body-cap shortcut waits, and no breach starts. Recovery below is NOT suspended, so a cluster that
+        // has come back inside drains its fuse as usual.
+        bool protectedNow = ContainmentProtected;
+        if (!protectedNow && _bodies.Count >= ConnateTuning.MaximumBodies)
         {
             SizeFuse = 1;
             BeginLimitBreach();
@@ -1034,18 +1341,20 @@ public sealed class Connate : IArcadeGame
         // A recoverable fuse absorbs transient collision spikes. Deeper penetration charges faster, while a fully
         // contained heap drains continuously and can unlatch the warning cue.
         double excess = Math.Max(0, ClumpExtent - ConnateTuning.ClumpLimitRadius);
-        double old = SizeFuse;
         if (excess > 0)
         {
-            double grace = Math.Max(0.1, ConnateTuning.BarelyOversizeGraceSeconds);
-            double multiplier = 1 + excess / Math.Max(0.01, ConnateTuning.SoftExcessBand);
-            SizeFuse = Math.Min(1, SizeFuse + dt / grace * multiplier);
+            if (!protectedNow)
+            {
+                double grace = Math.Max(0.1, ConnateTuning.BarelyOversizeGraceSeconds);
+                double multiplier = 1 + excess / Math.Max(0.01, ConnateTuning.SoftExcessBand);
+                SizeFuse = Math.Min(1, SizeFuse + dt / grace * multiplier);
+            }
         }
         else SizeFuse = Math.Max(0, SizeFuse - ConnateTuning.FuseRecoveryPerSec * dt);
 
         if (!_warningLatched && SizeFuse >= 0.55) { _warningLatched = true; _cues |= Cue.Warning; }
         if (_warningLatched && SizeFuse <= 0.05) { _warningLatched = false; _cues |= Cue.Recover; }
-        if (old < 1 && SizeFuse >= 1) BeginLimitBreach();
+        if (!protectedNow && SizeFuse >= 1) BeginLimitBreach();
     }
 
     private void BeginLimitBreach()
@@ -1062,7 +1371,10 @@ public sealed class Connate : IArcadeGame
         bool newBest = hostScore > HighScore;
         if (newBest) HighScore = hostScore;
         _cues |= Cue.GameOver;
-        if (newBest) _cues |= Cue.NewBest;
+        // A run that already shouted NEW BEST when it passed the record does not play the voice a second time.
+        if (newBest && !_newBestShouted) _cues |= Cue.NewBest;
+        StageShoutLeft = 0;
+        NewBestShoutLeft = 0;
         SetPhase(Stage.LimitBreach);
     }
 
@@ -1086,19 +1398,26 @@ public sealed class Connate : IArcadeGame
             HeldRank = baseOnly ? DrawBaseRank() : DrawFeedRank();
             HeldHue  = ConnateRules.WithAutoBlend(HeldRank, DrawHue());
         }
+        DrawNextTile(baseOnly);
+    }
+
+    /// <summary>Refills the preview slot: rank then family, in that RNG order.</summary>
+    private void DrawNextTile(bool baseOnly = false)
+    {
         _nextRank = baseOnly ? DrawBaseRank() : DrawFeedRank();
         _nextHue  = ConnateRules.WithAutoBlend(_nextRank, DrawHue());
     }
 
     private int _nextRank = -1, _nextHue = ConnateRules.HueAzure;
 
-    /// <summary>What the payload will hold after the current piece is fired, for the HUD's next-tile slot: a
-    /// queued bomb first, then the tile a bomb displaced, then the pre-drawn feed tile. Read-only — the sim's
-    /// own reload logic in Fire is the authority, this mirrors its order.</summary>
+    /// <summary>What the payload will hold after the current piece is fired, for the HUD's next-tile slot: an
+    /// earned bomb first (it loads the moment the held piece leaves, whether that piece is a tile or a bomb),
+    /// then the tile parked behind a loaded bomb, then the pre-drawn feed tile. Read-only — the sim's own
+    /// reload logic in Fire is the authority, this mirrors its order.</summary>
     public (bool Bomb, int Rank, int Hue) NextPreview()
     {
-        if (HeldIsBomb && PendingBombs > 0) return (true, -1, 0);
-        if (HeldIsBomb && _queuedRank >= 0) return (false, _queuedRank, _queuedHue);
+        if (PendingBombs > 0) return (true, -1, 0);
+        if ((HeldIsBomb || RailEmpty) && _queuedRank >= 0) return (false, _queuedRank, _queuedHue);
         return (false, _nextRank, _nextHue);
     }
 
@@ -1166,12 +1485,15 @@ public sealed class Connate : IArcadeGame
 
     public void Restart() => RestartRound();
 
-    private void RestartRound()
+    /// <summary>Begins a run. <paramref name="startStage"/> above 1 (the pause menu's START AT STAGE) goes
+    /// straight into play with the score banked at that stage's threshold; every other restart begins at stage 1.</summary>
+    private void RestartRound(int startStage = 1)
     {
         // A new run started from the game-over screen goes straight into play: the player has just read a
         // card and pressed to go, and the intro card would only flash for its auto-dismiss window. The
         // intro is for a game opened fresh.
-        bool straightIn = Phase == Stage.GameOver;
+        bool straightIn = Phase == Stage.GameOver || startStage > 1;
+        StartStage = startStage;
         // HighScore and RNG survive restart; every other per-run collection and timer must be reset before the
         // first held value and future cadences are drawn.
         _bodies.Clear();
@@ -1190,7 +1512,14 @@ public sealed class Connate : IArcadeGame
         ComboCount = 0;
         ComboDisplayLeft = 0;
         BoardClearLeft = 0;
-        BoardClearBonus = 0;
+        _boss.Clear();
+        _bossHits.Clear();
+        _owedStageShouts.Clear();
+        _announcedStageIndex = 0;
+        StageShoutLeft = 0;
+        StageShoutStage = 0;
+        NewBestShoutLeft = 0;
+        _newBestShouted = false;
         // An invariant, so set explicitly rather than relying on SeedOpeningGarbage below.
         _boardOccupied = true;
         BombCharge = 0;
@@ -1203,6 +1532,7 @@ public sealed class Connate : IArcadeGame
         _fireCooldown = _chainTimeLeft = 0;
         _sinceFire = RecoilCap;
         _fireHeld = false;
+        _pressConsumed = false;
         _sinceHold = RecoilCap;
         _shotDrawTension = 0;
         _chainDepth = 0;
@@ -1224,7 +1554,7 @@ public sealed class Connate : IArcadeGame
         PlayerAngle = Math.PI;
         DrawNextHeld(baseOnly: true);
         SeedOpeningGarbage();
-        if (straightIn) { SetPhase(Stage.Playing); _shotClockElapsed = 0; }
+        if (straightIn) { SetPhase(Stage.Playing); _shotClockElapsed = 0; SeedStart(startStage); }
         else SetPhase(Stage.Intro);
     }
 
@@ -1287,7 +1617,9 @@ public sealed class Connate : IArcadeGame
                                    double Lock, bool Armed, long Shot, double Age, double Jelly,
                                    bool Garbage, bool Entering, double GarbageRadius,
                                    int Hue = ConnateRules.HueAzure,
-                                   double Rot = 0, double Spin = 0);
+                                   double Rot = 0, double Spin = 0,
+                                   // A body in flight on a charged launch; false is every body a v7/v8 file holds.
+                                   bool Charged = false);
     private sealed record PendingSnap(long A, long B, int ResultRank, double Age, double Duration);
     private sealed record BombSnap(long Id, double X, double Y, double VX, double VY, double Age);
     private sealed record Snap(int V, int Phase, double PhaseTime, double PlayerAngle, int HeldRank,
@@ -1306,22 +1638,35 @@ public sealed class Connate : IArcadeGame
         double SinceFire = RecoilCap,
         // A document without a preview draws one on the next reload; the stream diverges from the frozen
         // run's by one tile, which no rule depends on.
-        int NextRank = -1, int NextHue = ConnateRules.HueAzure);
+        int NextRank = -1, int NextHue = ConnateRules.HueAzure,
+        // A run resumed without the flag has not shouted: Restore also derives it from the score, so a v8 run
+        // already past the best does not shout on its first step.
+        bool NewBestShown = false,
+        // Null is every board that is not mid-encounter, which is every v7/v8 file.
+        BossSnap? Boss = null);
+    /// <summary>The boss-block encounter, whole. The crack count is not stored: it is the hits taken. A mid-flight
+    /// bomb delivery rides here too, since the encounter's first fight bomb waits on it.</summary>
+    private sealed record BossSnap(int Phase, double Time, long Reward, int Bombs, int Hits, int Stage,
+        bool Shattered, double X, double Y, double VX, double VY, double Rot, double Impact, double Delivery);
 
-    /// <summary>⚠ Bump this whenever merge legality or the bomb economy changes, so boards frozen under the
-    /// old rules are discarded rather than migrated — a save that loads and then behaves differently is worse
-    /// than one that doesn't load. High scores survive regardless; they live outside the snapshot.</summary>
-    private const int SnapVersion = 8;
+    /// <summary>⚠ Bump this whenever merge legality or the bomb economy changes in a way an older board cannot
+    /// represent, so boards frozen under the old rules are discarded rather than migrated — a save that loads
+    /// and then behaves differently is worse than one that doesn't load. High scores survive regardless; they
+    /// live outside the snapshot.</summary>
+    private const int SnapVersion = 9;
 
-    /// <summary>Versions this build accepts, newest first. v7 stays readable because 7 → 8 is purely
-    /// subtractive — it dropped the bomb schedule's Turns/NextBomb fields, no rule moved, and every
-    /// surviving field keeps its name, so a v7 document deserializes into the v8 record with the two dead
-    /// properties simply ignored. ⚠ A rule change never earns a spot on this list; that's what the bump above
-    /// is for.
+    /// <summary>Versions this build accepts, newest first. v8 and v7 stay readable because every board they
+    /// can hold is a legal v9 board: 7 → 8 only dropped the bomb schedule's dead Turns/NextBomb fields, and
+    /// 8 → 9 appended three defaulted fields (<c>NewBestShown</c>, a body's <c>Charged</c> flag, false on every
+    /// body an older file holds, and the boss-block <c>Boss</c> record, null in every older file) while widening what the bomb rail may hold
+    /// (a pending bomb under a numbered tile) — a v8 board never has one, and still reads as itself. The stage
+    /// count, thresholds and deadlines are derived from the banked total, so nothing in them is stored.
+    /// A v9 file that still carries the retired unlock-card members (<c>OwedCards</c>, <c>Card</c>, <c>CardLeft</c>)
+    /// loads too: the snapshot reader ignores members it does not know, so they must never be made required.
     ///
     /// <para>A version not on this list — including a future one — still yields a fresh game rather than a
     /// crash or a prompt, the same posture <c>ArcadeStore</c> takes with the file itself.</para></summary>
-    private static readonly int[] ReadableVersions = [SnapVersion, 7];
+    private static readonly int[] ReadableVersions = [SnapVersion, 8, 7];
 
     public string Serialize() => JsonSerializer.Serialize(new Snap(
         SnapVersion, (int)Phase, PhaseTime, PlayerAngle, HeldRank, SizeFuse, FinalFieldSum, ExplodedValue, HighScore,
@@ -1330,14 +1675,19 @@ public sealed class Connate : IArcadeGame
         [.. _bodies.Select(body => new BodySnap(body.Id, body.Rank, body.X, body.Y,
             body.VelocityX, body.VelocityY, body.MergeLock, body.SizeArmed, body.ShotId, body.Age, body.JellyTime,
             body.IsGarbage, body.EnteringPlayfield, body.GarbageRadius, body.Hue,
-            body.Rotation, body.SpinRate))],
+            body.Rotation, body.SpinRate, body.Charged))],
         [.. _pendingMerges.Select(bond => new PendingSnap(
             bond.AId, bond.BId, bond.ResultRank, bond.Age, bond.Duration))],
         [.. _bombProjectiles.Select(bomb => new BombSnap(
             bomb.Id, bomb.X, bomb.Y, bomb.VelocityX, bomb.VelocityY, bomb.Age))],
         _shotClockElapsed, _garbageTimeLeft, HeldHue,
         _immunityFloorLeft, _queuedRank, _queuedHue, BombCharge, PendingBombs, _mergesSinceShot, _sinceFire,
-        _nextRank, _nextHue));
+        _nextRank, _nextHue, _newBestShouted,
+        _boss.Active
+            ? new BossSnap((int)_boss.Phase, _boss.Time, _boss.Reward, _boss.Bombs, _boss.Hits, _boss.CapturedStage,
+                _boss.Shattered, _boss.X, _boss.Y, _boss.VelocityX, _boss.VelocityY, _boss.Rotation,
+                _boss.ImpactLeft, BombDeliveryLeft)
+            : null));
 
     public void Restore(string json)
     {
@@ -1367,16 +1717,16 @@ public sealed class Connate : IArcadeGame
             if (!Finite(snap.GarbageTime) || snap.GarbageTime < 0
                 || snap.GarbageTime > ConnateTuning.GarbageIntervalMaximumSeconds) return;
             if (snap.QueuedRank < -1 || snap.QueuedRank > ConnateRules.MaximumRank) return;
-            // A tile is only ever queued behind a bomb — held or pending. Without this, a file claiming a
-            // queue with no bomb leaves a tile that HasQueuedTile reports to the renderer and that nothing
-            // consumes until some future bomb happens to fire.
-            // Checked on the value that will actually be committed, not the raw one: the commit below clamps
-
-            // against the live-tunable cap, and a raw count the clamp takes to zero would slip a queued tile past.
-
+            // A tile is only ever parked behind a LOADED bomb. Without this, a file claiming a parked tile with
+            // the rail holding a numbered one leaves a tile that HasQueuedTile reports to the renderer and that
+            // nothing consumes until some future bomb happens to load and fire.
+            // The pending count is checked as it will be committed, not as written: the commit clamps it against
+            // the live-tunable cap. A pending bomb under a numbered tile is legal — that is where an earned
+            // bomb waits.
             int pendingBombs = Math.Clamp(snap.PendingBombs, 0, Math.Max(0, ConnateTuning.MaximumBombs - (snap.HeldBomb ? 1 : 0)));
-
-            if (snap.QueuedRank >= 0 && !snap.HeldBomb && pendingBombs <= 0) return;
+            // The one exception is an encounter whose last bomb has gone: the rail is empty and NEXT waits for
+            // the block to break.
+            if (snap.QueuedRank >= 0 && !snap.HeldBomb && snap.Boss is not { Shattered: true }) return;
             if (snap.BombCharge < 0 || snap.BombCharge > MaximumBombChargeCost) return;
             if (!Finite(snap.ImmunityFloor) || snap.ImmunityFloor < 0
                 || snap.ImmunityFloor > ConnateTuning.BombImmunityMinimumSeconds) return;
@@ -1407,25 +1757,31 @@ public sealed class Connate : IArcadeGame
                     Hue = body.Garbage ? ConnateRules.HueNone : RestoreHue(body.Hue),
                     Rotation = ClampFinite(body.Rot, -1e6, 1e6),
                     SpinRate = ClampFinite(body.Spin, -40, 40),
+                    Charged = body.Charged && !body.Garbage,
                 });
             }
+            // A bond that is not a legal merge — missing or repeated bodies, garbage, an impossible
+            // result or family, or a body already reserved by an earlier bond — is DISCARDED, not grounds for
+            // rejecting the whole board: the bodies are fine and simply never merge on this bond. The same
+            // predicate runs every physics substep (ConnatePhysics.IsMergeValid).
             var restoredPending = new List<ConnatePendingMerge>(snap.Pending.Length);
             var reserved = new HashSet<long>();
             var restoredById = restored.ToDictionary(body => body.Id);
             foreach (PendingSnap bond in snap.Pending)
             {
                 if (bond.A <= 0 || bond.B <= 0 || bond.A == bond.B
-                    || !reserved.Add(bond.A) || !reserved.Add(bond.B)) return;
+                    || reserved.Contains(bond.A) || reserved.Contains(bond.B)) continue;
                 if (!restoredById.TryGetValue(bond.A, out ConnateBody? a)
-                    || !restoredById.TryGetValue(bond.B, out ConnateBody? b)) return;
-                if (a.IsGarbage || b.IsGarbage) return;
-                if (ConnateRules.MergeResultRank(a.Rank, b.Rank) != bond.ResultRank) return;
+                    || !restoredById.TryGetValue(bond.B, out ConnateBody? b)) continue;
                 double duration = ClampFinite(bond.Duration, 0.04, 1.0);
-                restoredPending.Add(new ConnatePendingMerge
+                var candidate = new ConnatePendingMerge
                 {
                     AId = bond.A, BId = bond.B, ResultRank = bond.ResultRank,
                     Age = ClampFinite(bond.Age, 0, duration), Duration = duration,
-                });
+                };
+                if (!ConnatePhysics.IsMergeValid(candidate, a, b)) continue;
+                reserved.Add(bond.A); reserved.Add(bond.B);
+                restoredPending.Add(candidate);
             }
             long maxId = restored.Select(body => body.Id).DefaultIfEmpty(0).Max();
             if (snap.NextBody <= maxId || snap.NextShot <= 0) return;
@@ -1439,6 +1795,7 @@ public sealed class Connate : IArcadeGame
                     Age = ClampFinite(bomb.Age, 0, ConnateTuning.BombLifetimeSeconds),
                 });
             }
+            if (snap.Boss is { } saved && !BossSnapIsLegal(snap, saved, pendingBombs, restoredBombs.Count)) return;
 
             // Commit only after every cross-reference has passed. Transient flashes deliberately restart empty;
             // the logical body/bond/projectile state resumes exactly and will generate future effects normally.
@@ -1456,6 +1813,21 @@ public sealed class Connate : IArcadeGame
             HeldRank = snap.HeldRank;
             HeldHue = RestoreHue(snap.HeldHue);
             HeldIsBomb = snap.HeldBomb;
+            _bossHits.Clear();
+            StartStage = 1;
+            _owedStageShouts.Clear();
+            if (snap.Boss is { } boss)
+            {
+                _boss.Load((ConnateBossPhase)boss.Phase, ClampFinite(boss.Time, 0, 86400), boss.Reward, boss.Bombs,
+                    boss.Hits, boss.Stage, boss.Shattered, boss.X, boss.Y, boss.VX, boss.VY, boss.Rot,
+                    ClampFinite(boss.Impact, 0, 1));
+                BombDeliveryLeft = ClampFinite(boss.Delivery, 0, ConnateTuning.BombDeliverySeconds);
+            }
+            else
+            {
+                _boss.Clear();
+                BombDeliveryLeft = 0;
+            }
             SizeLimitImmune = snap.Immune;
             _immunityFloorLeft = ClampFinite(snap.ImmunityFloor, 0, ConnateTuning.BombImmunityMinimumSeconds);
             _queuedRank = snap.QueuedRank;
@@ -1469,8 +1841,7 @@ public sealed class Connate : IArcadeGame
             ComboCount = 0;
             ComboDisplayLeft = 0;
             BoardClearLeft = 0;
-            BoardClearBonus = 0;
-            // Derived, not stored: an already-empty board must not pay a clear bonus on its first step.
+            // Derived, not stored: an already-empty board must not start the encounter on its first step.
             _boardOccupied = _bodies.Count > 0;
             _scoreMotes.Clear();
             _comboBursts.Clear();
@@ -1480,9 +1851,9 @@ public sealed class Connate : IArcadeGame
             // ⚠ Must follow the bank: the cost is a function of the stage, and a charge at or past it would sit
             // on a full meter that nothing spends until the next combo.
             BombCharge = Math.Clamp(snap.BombCharge, 0, BombChargeCost - 1);
-            // The deadline is derived from the banked total and the phase clock, both committed above, so the
-            // restored elapsed time is clamped to the deadline this run actually has rather than the ceiling.
-            _shotClockDeadline = ConnateTuning.ShotClockDeadline(DifficultyIndex, ReliefActive);
+            // The deadline is derived from the banked total, committed above, so the restored elapsed time is
+            // clamped to the deadline this run actually has rather than the ceiling.
+            _shotClockDeadline = ConnateTuning.ShotClockDeadline(DifficultyIndex);
             _shotClockElapsed = ClampFinite(snap.ShotClock, 0, _shotClockDeadline);
             // ⚠ Must follow the line above. Motes are transient, so a run frozen mid-flight resumes with them
             // already landed; deriving the score from the bomb ledger keeps the two from ever disagreeing.
@@ -1503,6 +1874,15 @@ public sealed class Connate : IArcadeGame
             DisplayedScore = LiveScore;
             ScorePulse = 0;
             _collectCueCooldown = 0;
+            // A restore announces nothing: the stage is re-anchored wherever the bank puts it, and a run
+            // already past the best has shouted — derived as well as stored, so a board saved without the flag
+            // does not shout on its first step.
+            _announcedStageIndex = DifficultyIndex;
+            StageShoutLeft = 0;
+            StageShoutStage = 0;
+            NewBestShoutLeft = 0;
+            _newBestShouted = snap.NewBestShown
+                || (HighScore > 0 && ConnateRules.HostScore(CollectedScore) > HighScore);
             committed = true;
         }
         catch (Exception ex)
@@ -1523,6 +1903,46 @@ public sealed class Connate : IArcadeGame
         ConnateRules.HueBlend => ConnateRules.HueBlend,
         _ => ConnateRules.HueAzure,
     };
+
+    /// <summary>Is a saved encounter one the game could have been in? Anything else is hostile and yields a fresh
+    /// game: the encounter runs only on a live, empty board; its numbers are inside their caps and finite; each
+    /// phase agrees with the hits and the shatter flag; and every bomb it still owes is accounted for — in flight,
+    /// on the rail, or waiting — so no saved fight can wait on a bomb that does not exist.</summary>
+    private static bool BossSnapIsLegal(Snap snap, BossSnap boss, int pendingBombs, int bombsInFlight)
+    {
+        if (boss.Phase is < (int)ConnateBossPhase.Drop or > (int)ConnateBossPhase.Break) return false;
+        if (snap.Phase != (int)Stage.Playing || snap.Bodies.Length != 0) return false;
+        if (boss.Bombs < 1 || boss.Bombs > ConnateTuning.MaximumBombs) return false;
+        if (boss.Hits < 0 || boss.Hits > boss.Bombs) return false;
+        if (boss.Reward < 0 || boss.Reward > ConnateTuning.BossRewardCeiling) return false;
+        if (boss.Stage < 0 || boss.Stage > ConnateTuning.MaximumStageIndex) return false;
+        if (!Finite(boss.Time) || boss.Time < 0 || boss.Time > 86400) return false;
+        if (!Finite(boss.X) || !Finite(boss.Y) || Math.Abs(boss.X) > 1 || Math.Abs(boss.Y) > 1) return false;
+        if (!Finite(boss.VX) || !Finite(boss.VY) || Math.Abs(boss.VX) > 50 || Math.Abs(boss.VY) > 50) return false;
+        if (!Finite(boss.Rot) || Math.Abs(boss.Rot) > 1e6) return false;
+        if (!Finite(boss.Impact) || boss.Impact < 0 || boss.Impact > 1) return false;
+        if (!Finite(boss.Delivery) || boss.Delivery < 0 || boss.Delivery > ConnateTuning.BombDeliverySeconds) return false;
+
+        int onRail = (snap.HeldBomb ? 1 : 0) + pendingBombs;
+        switch ((ConnateBossPhase)boss.Phase)
+        {
+            case ConnateBossPhase.Drop:
+                if (boss.Shattered || boss.Hits != 0 || boss.Time > ConnateTuning.BossDropSeconds + 0.1) return false;
+                break;
+            case ConnateBossPhase.Land:
+                if (boss.Hits != 0) return false;
+                break;
+            case ConnateBossPhase.Fight:
+                if (!boss.Shattered || boss.Hits >= boss.Bombs) return false;
+                break;
+            case ConnateBossPhase.Break:
+                if (!boss.Shattered || bombsInFlight != 0 || onRail != 0
+                    || boss.Time > ConnateTuning.BossBreakSeconds + 0.1) return false;
+                return true;
+        }
+        // Before the break, every bomb not yet landed is in flight, on the rail, or waiting for it.
+        return boss.Bombs - boss.Hits == bombsInFlight + onRail;
+    }
 
     private static bool Finite(double value) => ArcadeMath.Finite(value);
     private static double ClampFinite(double value, double minimum, double maximum) =>

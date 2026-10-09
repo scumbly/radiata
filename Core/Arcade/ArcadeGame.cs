@@ -67,7 +67,12 @@ public readonly record struct ArcadeInput(
 /// current. Deliberately a tiny value type rather than a callback — the menu has to be able to draw the row
 /// (and remember where the cursor is) without knowing what any of it means.</summary>
 /// <param name="Key">Stable identifier the game matches in <see cref="IArcadeGame.ApplyPauseOption"/>.</param>
-public sealed record ArcadePauseOption(string Key, string Label, string[] Choices, int Selected);
+/// <param name="StartsOnConfirm">True for an action row: d-pad left/right only browse the shown value, and ✕ is
+/// what calls <see cref="IArcadeGame.ApplyPauseOption"/> with it. The browsed value is the host's and is dropped
+/// when the menu closes; <paramref name="Selected"/> stays the game's own current value. False (every other
+/// row): a step applies at once and ✕ cycles.</param>
+public sealed record ArcadePauseOption(string Key, string Label, string[] Choices, int Selected,
+                                       bool StartsOnConfirm = false);
 
 /// <summary>One bullet on a game's how-to-play card: a line of text and, optionally, a small drawing beside
 /// it.
@@ -206,6 +211,11 @@ public interface IArcadeGame
     /// and never reaches this. It is for the games whose "game over" is a step in a continuing run. No-op
     /// when nothing is up; a default, so a game with no such screen need not think about it.</para></summary>
     void AcknowledgeOutcome() { }
+
+    /// <summary>The host cleared its input because the board stopped being played — pause, a how-to card, the
+    /// isolation guard, the resume beat, a restart. A game that tracks a held button drops it here, so a
+    /// release made during the gap cannot act on the first step back. Default: nothing to drop.</summary>
+    void CancelInput() { }
 
     /// <summary>Score worth persisting as this game's best.</summary>
     int HighScore { get; }

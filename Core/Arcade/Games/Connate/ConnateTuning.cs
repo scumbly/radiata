@@ -26,22 +26,23 @@ public static class ConnateTuning
     public static double CraftOrbitRadius = 0.90;
     public static double LaunchRadius = 0.815;
     public static double LaunchSpeed = 3.15;
-    /// <summary>A tap's launch speed, as a fraction of <see cref="LaunchSpeed"/>. The orb is lobbed rather
-    /// than shot: it coasts in on the board's own gravity and settles roughly where it touches, instead of
-    /// driving into the cluster and shoving it around.
-    ///
-    /// <para>⚠ This is a floor on the speed leaving the craft, not on the speed it arrives at. Gravity is a
-    /// centre spring, so an orb launched at literally zero still reaches the heap at around half a full
-    /// shot's speed — a bit under a third of its energy. Taking this below about 0.15 buys almost nothing:
-    /// the gravity term is what is left, and lowering it is a different change entirely.</para></summary>
-    public static double TapLaunchFraction = 0.18;
-    /// <summary>How long ✕ must be held for a shot to leave at the whole of <see cref="LaunchSpeed"/>. Below
-    /// it the launch speed ramps from <see cref="TapLaunchFraction"/>, so a half-second hold is a full-force
-    /// shot, a stab is a lob, and everything between is a real choice rather than two modes.
-    ///
-    /// <para>⚠ A deadline shot — the shot clock spending the piece for the player — launches at full force
-    /// regardless: it is not a release, and the player made no choice for a ramp to read.</para></summary>
+    /// <summary>How long ✕ must be held for the release to be a CHARGED shot. Anything shorter is a normal
+    /// shot at <see cref="LaunchSpeed"/>; holding longer adds nothing. The charge is read off the hold clock on
+    /// the release edge, and off the same clock when the shot clock spends the piece while ✕ is still down.
+    /// The bow draw reads 0 to full across exactly this stretch, so a full draw and a slam arrive together.</summary>
     public static double FullChargeSeconds = 0.5;
+    /// <summary>Slack under <see cref="FullChargeSeconds"/> that still counts as a full charge, so a hold
+    /// measured in 120 Hz steps is not refused by accumulated rounding.</summary>
+    public static double FullChargeEpsilon = 1e-5;
+    /// <summary>A charged shot leaves at this multiple of <see cref="LaunchSpeed"/>.</summary>
+    public static double ChargedLaunchMultiplier = 2.60;
+    /// <summary>The speed clamp while a body carries the charged flag; every other body keeps
+    /// <see cref="MaxSpeedPerSec"/>. ⚠ Must stay above <c>LaunchSpeed * ChargedLaunchMultiplier</c> or the slam is
+    /// clamped on its first substep.</summary>
+    public static double ChargedMaxSpeedPerSec = 8.40;
+    /// <summary>Restitution of the first closing contact a charged body makes; the contact also clears the
+    /// flag, so the bounce is spent once and ordinary collisions (<see cref="Restitution"/>) follow.</summary>
+    public static double ChargedImpactRestitution = 0.55;
     public static double FireCooldownSeconds = 0.18;
     public static double MuzzleClearance = 1.05;
     /// <summary>The stage-1 shot deadline, and the ceiling every later deadline is clamped to. The live
@@ -53,28 +54,44 @@ public static class ConnateTuning
     public static double ShotClockVisibleFraction = 1.0 / 3.0;
 
     // ── Difficulty stages ──
-    // Banked value (Connate.ExplodedValue: bombed tiles plus board-clear bonuses, never the live board) drives
-    // a six-stage ramp. A stage is DERIVED from the banked total on every read, so a single payout can skip
-    // stages and nothing is stored or migrated. Two things get harder: the shot deadline shortens and the
-    // garbage countdown is consumed faster. From stage 2, a time-driven relief window pauses garbage and
-    // lengthens the deadline. ⚠ Arrays are not reachable from arcade-tuning.json (it reflects doubles and ints
-    // only); the scalar knobs beside them are.
-    /// <summary>Banked value that ENTERS stage 2, 3, 4, 5 and 6. Inclusive: exactly 100 is stage 2.</summary>
-    public static readonly long[] StageThresholds = [100, 250, 450, 700, 1000];
-    /// <summary>Seconds taken off the shot deadline per stage index: 3.00 s at stage 1 down to 2.25 s at 6.</summary>
-    public static double ShotClockStepSeconds = 0.15;
-    /// <summary>Seconds added back to the deadline during relief, capped at <see cref="ShotClockSeconds"/>.</summary>
-    public static double ReliefShotClockBonusSeconds = 0.30;
-    /// <summary>The 10–30 s garbage interval is drawn unchanged at every stage; the stored countdown is
-    /// consumed at <c>dt / scale</c>, so stage 6 sees arrivals 5.5–16.5 s apart.</summary>
-    public static readonly double[] GarbageCountdownScales = [1.00, 0.90, 0.80, 0.70, 0.60, 0.55];
-    /// <summary>Length of one pressure-plus-relief cycle on the playing-phase clock. The cycle runs from the
-    /// moment play starts and is not restarted by a stage change.</summary>
-    public static double PressureCycleSeconds = 48.0;
-    /// <summary>Relief is the LAST this many seconds of each cycle: 40–48 s, 88–96 s, and so on.</summary>
-    public static double ReliefSeconds = 8.0;
+    // Banked value (Connate.ExplodedValue: bombed tiles plus boss-block payouts, never the live board) drives
+    // a twenty-stage climb. A stage is DERIVED from the banked total on every read, so a single payout can
+    // skip stages and nothing is stored or migrated; the top stage is a cap, not an ending. Three things get
+    // harder: the shot deadline shortens, the garbage countdown is consumed faster, and a bomb costs more
+    // charge. They run at the stage rate continuously — nothing in the run eases off on a clock.
+    // ⚠ Arrays are not reachable from arcade-tuning.json (it reflects doubles and ints only); the scalar knobs
+    // beside them are.
+    /// <summary>Highest stage index (the player-facing stage is one more).</summary>
+    public const int MaximumStageIndex = 19;
 
-    /// <summary>Stage index 0..5 for a banked total. Thresholds are inclusive.</summary>
+    /// <summary>Banked value that ENTERS player-facing stage <paramref name="stage"/> (2..20). Inclusive:
+    /// exactly 100 is stage 2. Quadratic through stage 10 (25·(n−1)·(n+2)), then the gaps grow by 40 rather
+    /// than 50, so stage 20 lands on exactly 10,000.</summary>
+    public static long StageThresholdFor(int stage)
+    {
+        if (stage <= 1) return 0;
+        stage = Math.Min(stage, MaximumStageIndex + 1);
+        if (stage <= 10) return 25L * (stage - 1) * (stage + 2);
+        int n = stage - 10;
+        return 2700 + 550L * n + 20L * n * (n - 1);
+    }
+
+    /// <summary>Banked value that ENTERS stage 2, 3, … 20: nineteen entries, ascending.</summary>
+    public static readonly long[] StageThresholds =
+        [.. Enumerable.Range(2, MaximumStageIndex).Select(StageThresholdFor)];
+
+    /// <summary>Seconds taken off the shot deadline per stage index through <see cref="ShotClockTaperIndex"/>:
+    /// 3.00 s at stage 1 down to 1.65 s at stage 10.</summary>
+    public static double ShotClockStepSeconds = 0.15;
+    /// <summary>Stage index at which the deadline's slope changes.</summary>
+    public const int ShotClockTaperIndex = 9;
+    /// <summary>Seconds taken off per stage index past <see cref="ShotClockTaperIndex"/>: 1.65 s at stage 10
+    /// down to 0.50 s at stage 20.</summary>
+    public static double LateShotClockStepSeconds = 0.115;
+    /// <summary>The shortest deadline the clock can reach, which is also the stage-20 value.</summary>
+    public const double ShotClockFloorSeconds = 0.5;
+
+    /// <summary>Stage index 0..19 for a banked total. Thresholds are inclusive.</summary>
     public static int StageIndexFor(long banked)
     {
         int index = 0;
@@ -85,20 +102,29 @@ public static class ConnateTuning
     /// <summary>Player-facing stage count: the thresholds plus the stage before the first.</summary>
     public static int StageCount => StageThresholds.Length + 1;
 
-    /// <summary>The shot deadline at a stage index, with or without relief. Floored well above zero so a
-    /// tuning override can't produce a clock that fires on the frame a piece is handed over.</summary>
-    public static double ShotClockDeadline(int stageIndex, bool relief)
+    /// <summary>The shot deadline at a stage index. Floored well above zero so a tuning override can't produce
+    /// a clock that fires on the frame a piece is handed over.</summary>
+    public static double ShotClockDeadline(int stageIndex)
     {
-        double deadline = ShotClockSeconds - ShotClockStepSeconds * Math.Clamp(stageIndex, 0, StageCount - 1);
-        if (relief) deadline += ReliefShotClockBonusSeconds;
-        return Math.Clamp(deadline, 0.5, ShotClockSeconds);
+        int index = Math.Clamp(stageIndex, 0, MaximumStageIndex);
+        double deadline = index <= ShotClockTaperIndex
+            ? ShotClockSeconds - ShotClockStepSeconds * index
+            : ShotClockSeconds - ShotClockStepSeconds * ShotClockTaperIndex
+                - LateShotClockStepSeconds * (index - ShotClockTaperIndex);
+        return Math.Clamp(deadline, ShotClockFloorSeconds, ShotClockSeconds);
     }
 
-    /// <summary>How much of a second the garbage countdown loses per second of play at a stage index.</summary>
+    /// <summary>How much of a second the garbage countdown loses per second of play at a stage index. The
+    /// 10–30 s draw itself never changes; this scales how fast the stored countdown is consumed, so stage 20
+    /// sees arrivals 2.5–7.5 s apart. 1.00 → 0.60 by 0.10 a stage through index 4, 0.55 → 0.35 by 0.05
+    /// through index 9, then 0.34 → 0.25 by 0.01.</summary>
     public static double GarbageCountdownScale(int stageIndex)
     {
-        int index = Math.Clamp(stageIndex, 0, GarbageCountdownScales.Length - 1);
-        return Math.Max(0.05, GarbageCountdownScales[index]);
+        int index = Math.Clamp(stageIndex, 0, MaximumStageIndex);
+        double scale = index <= 4 ? 1.0 - 0.1 * index
+            : index <= 9 ? 0.6 - 0.05 * (index - 4)
+            : 0.35 - 0.01 * (index - 9);
+        return Math.Max(0.05, scale);
     }
 
     // Heap dynamics. Gravity is a stable center spring; swirl applies the clockwise perpendicular component.
@@ -135,7 +161,7 @@ public static class ConnateTuning
     public static double MergeAnticipationSeconds = 0.110;
     public static double MergeBondStrength = 2.8;
     public static double MergeBondDampingPerSec = 8.0;
-    public static double JellySeconds = 0.46;
+    public static double JellySeconds = 0.70;
 
     // Loss envelope. SizeArmed bodies beyond ClumpLimitRadius charge a recoverable normalized fuse.
     // SoftExcessBand makes deep excursions more urgent than a one-pixel threshold crossing.
@@ -211,25 +237,73 @@ public static class ConnateTuning
     /// <para>⚠ The meter draws one wedge per unit. Past about a dozen they stop being countable at a glance
     /// and the readout would want a bar instead.</para></summary>
     public static int BombChargePerBomb = 8;
-    /// <summary>Extra charge a bomb costs per difficulty stage index, on top of <see cref="BombChargePerBomb"/>:
-    /// 8 at stage 1, 13 at stage 6. The live cost is <c>Connate.BombChargeCost</c>; a stage change leaves the
-    /// charge already earned where it is and only moves the line it has to reach.</summary>
+    /// <summary>Extra charge a bomb costs per difficulty stage index, on top of <see cref="BombChargePerBomb"/>,
+    /// for the first <see cref="BombCostMaximumSteps"/> indices: 8 at stage 1, 15 from stage 8 on. The live
+    /// cost is <c>Connate.BombChargeCost</c>; a stage change leaves the charge already earned where it is and
+    /// only moves the line it has to reach.</summary>
     public static int BombChargePerStage = 1;
+    /// <summary>Stage indices that still raise the bomb cost; past this it stays flat.</summary>
+    public const int BombCostMaximumSteps = 7;
     // ── Board clear ──
     // Emptying the field — every numbered tile and every garbage blob gone at once — is the rarest thing that
-    // can happen here; it multiplies the run's whole score.
-    /// <summary>What a board clear multiplies the score by. A multiplier rather than a flat award on purpose:
-    /// clearing an empty-ish board late in a bad run should be worth little, and clearing one you had built up
-    /// should be worth the run.</summary>
-    public static double BoardClearMultiplier = 1.5;
+    // can happen here; it starts the boss-block encounter (ConnateBossBlock).
     /// <summary>How long the board-clear banner stays up. Longer than a combo's — it happens once in a run, if
     /// ever, and it lands on a board with nothing left to look at.</summary>
     public static double BoardClearDisplaySeconds = 2.60;
+
+    // ── Boss block ──
+    // Distances are normalized field radii, like everything above. Rim, launch and field radii are shared with
+    // the Playdate edition; only these encounter numbers are ported from it.
+    /// <summary>The share of the banked total the encounter's payout starts from, before the level-gap cap.
+    /// Half the bank, rounded to the nearest integer (half to even).</summary>
+    public static double BossBonusShare = 0.5;
+    /// <summary>Seconds the block takes to fall from <see cref="BossDropStartRadius"/> to its resting size.</summary>
+    public static double BossDropSeconds = 1.30;
+    /// <summary>The block's radius when it begins falling in: 80% of the playfield's diameter.</summary>
+    public static double BossDropStartRadius = 0.8;
+    /// <summary>Resting radius: <c>BossRadiusBase + BossRadiusPerBomb × bombs</c>, so 0.3 / 0.4 / 0.5.</summary>
+    public static double BossRadiusBase = 0.2;
+    public static double BossRadiusPerBomb = 0.1;
+    /// <summary>How fast the landing ring grows past the block's own radius, in radii per second.</summary>
+    public static double BossWaveSpeed = 3.0;
+    /// <summary>Seconds after landing before the fight can open, so the delivery and the ring have both read.</summary>
+    public static double BossFightDelaySeconds = 1.1;
+    /// <summary>Seconds the broken block's fragments take to leave the field.</summary>
+    public static double BossBreakSeconds = 1.25;
+    /// <summary>The block is a damped spring tethered to the centre: stiffness, damping, and the displacement
+    /// limit as a fraction of its radius. ⚠ The limit is what makes every inward shot hit — it must stay
+    /// inside <see cref="BossHitReach"/> or a bomb can pass beside the block.</summary>
+    public static double BossTetherStiffness = 45;
+    public static double BossTetherDamping = 8;
+    public static double BossTetherLimit = 0.25;
+    /// <summary>A bomb hits when its swept path passes within this fraction of the block's radius, plus the
+    /// bomb's own radius, of the block's centre. The visible junk core, not the crystals.</summary>
+    public static double BossHitReach = 0.65;
+    /// <summary>How much of a bomb's velocity the block takes as a kick.</summary>
+    public static double BossHitKick = 0.35;
+    /// <summary>Seconds the impact flash and the block's shake last after a hit; a landing shakes for
+    /// <see cref="BossLandShakeSeconds"/>.</summary>
+    public static double BossHitFlashSeconds = 0.3;
+    public static double BossLandShakeSeconds = 0.35;
+    /// <summary>The block's turn in radians per second once landed, and the extra turn each hit adds.</summary>
+    public static double BossSpinPerSec = 0.45;
+    public static double BossHitSpin = 0.12;
+    /// <summary>Ladder rank whose size the payout's motes (a gold stream, 6 + 1.75 per rank) and the hit's
+    /// blast are cut to. Presentation only; the value paid is the reward.</summary>
+    public static int BossMoteRank = 8;
+    public static int BossHitBlastRank = 2;
+    /// <summary>The most one hit can pay; the snapshot's upper bound on a stored reward. The real ceiling is
+    /// half the widest level gap (455).</summary>
+    public const long BossRewardCeiling = 2000;
 
     /// <summary>How long the on-screen combo counter stays up after the last merge of a chain. Slightly longer
     /// than <see cref="ChainContinuationSeconds"/> so the number you earned is readable after the chain that
     /// earned it has formally expired.</summary>
     public static double ComboDisplaySeconds = 1.60;
+    /// <summary>How long the stage-up shout ("STAGE n" over "INTENSITY INCREASES") stays up.</summary>
+    public static double StageShoutSeconds = 2.8;
+    /// <summary>How long the mid-run "NEW BEST" shout stays up.</summary>
+    public static double NewBestShoutSeconds = 2.0;
     /// <summary>How long one combo's burst lives — the number popping at the merge, the spark flying to
     /// its bomb-charge pip, and the pip's flash on arrival. The spark lands at
     /// <see cref="ComboSparkArrivalFraction"/> of this, leaving the rest for the flash.</summary>
@@ -267,7 +341,7 @@ public static class ConnateTuning
     public static double ComboSparkArrivalFraction = 0.62;
 
     /// <summary>A bomb's size-limit immunity lasts until the next tile is fired or this long, whichever is
-    /// longer — long enough that the relief a bomb is for does not end the instant the follow-up shot leaves
+    /// longer — long enough that the respite a bomb is for does not end the instant the follow-up shot leaves
     /// the rim.</summary>
     public static double BombImmunityMinimumSeconds = 2.5;
 

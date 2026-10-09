@@ -89,6 +89,13 @@ internal static class T_RenderScreens
         yield return ("kabloom/growth-notice", () => Show(GrowthBoard(), hint: true));
         yield return ("kabloom/capacity-card", () => Show(CapacityBoard(), hint: true));
         yield return ("kabloom/campaign-complete", () => Show(CompleteCampaign(), hint: true));
+        // The pause menu with the starting-size row browsed to another size, cursor on it: the action row's ✕ cue and chevrons.
+        yield return ("kabloom/pause-size-row-browsed", () => Show(Planted(new Kabloom()), hint: true, paused: true, state: c =>
+        {
+            T_Render.Set(c, "_pauseIndex", 3);
+            T_Render.Set(c, "_browseKey", "start");
+            T_Render.Set(c, "_browseChoice", 2);
+        }));
 
         // ── Connate ──
         yield return ("connate/title", () => T_RenderArcade.Game(Connate.GameId, played: false));
@@ -101,9 +108,82 @@ internal static class T_RenderScreens
         yield return ("connate/board-clear", () => Show(Played(Connate.GameId, g =>
         {
             SetProp(g, "BoardClearLeft", ConnateTuning.BoardClearDisplaySeconds * 0.7);
-            SetProp(g, "BoardClearBonus", 1200L);
+        }), hint: true));
+        yield return ("connate/stage-shout", () => Show(Played(Connate.GameId, g =>
+        {
+            SetProp(g, "ExplodedValue", 3250L);
+            SetProp(g, "StageShoutStage", 11);
+            SetProp(g, "StageShoutLeft", ConnateTuning.StageShoutSeconds * 0.7);
+        }), hint: true));
+        yield return ("connate/new-best-shout", () => Show(Played(Connate.GameId, g =>
+        {
+            SetProp(g, "NewBestShoutLeft", ConnateTuning.NewBestShoutSeconds * 0.7);
+        }), hint: true));
+        // The widest HUD plate: a two-digit stage over a five-digit score.
+        yield return ("connate/stage-20-hud", () => Show(Played(Connate.GameId, g =>
+        {
+            SetProp(g, "ExplodedValue", 12345L);
+            SetProp(g, "CollectedScore", 12345L);
+            SetProp(g, "DisplayedScore", 12345.0);
         }), hint: true));
 
+        // The pause menu once starts are unlocked: the START AT STAGE row beside RADIAL CONTROLS, mid-run at a chosen start.
+        yield return ("connate/pause-start-row-top", () => Show(StartProfile(unlocked: 20, start: 20), hint: true, paused: true));
+        // The row browsed away from the run's own stage, cursor on it: the value shown is the browsed one, with its chevrons.
+        yield return ("connate/pause-start-row-browsed", () => Show(StartProfile(unlocked: 20, start: 5), hint: true, paused: true, state: c =>
+        {
+            T_Render.Set(c, "_pauseIndex", 4);
+            T_Render.Set(c, "_browseKey", Connate.StartKey);
+            T_Render.Set(c, "_browseChoice", 3);
+        }));
+
+        // The how-to card and the cards that carry catalog text, in the languages whose scripts or lengths stress the layout.
+        foreach (string lang in new[] { "en", "ja", "ar" })
+        {
+            yield return ($"connate/howto-{lang}", () => InLang(lang, () =>
+                T_RenderArcade.Game(Connate.GameId, c => T_Render.Set(c, "_howTo", true))));
+            yield return ($"connate/pause-start-row-{lang}", () => InLang(lang, () =>
+                Show(StartProfile(unlocked: 15, start: 10), hint: true, paused: true)));
+            yield return ($"connate/stage-shout-{lang}", () => InLang(lang, () => Show(Played(Connate.GameId, g =>
+            {
+                SetProp(g, "ExplodedValue", 3250L);
+                SetProp(g, "StageShoutStage", 11);
+                SetProp(g, "StageShoutLeft", ConnateTuning.StageShoutSeconds * 0.7);
+            }), hint: true)));
+        }
+
+        // The boss block a cleared board drops in, one screen per stage of the encounter.
+        yield return ("connate/boss-drop", () => Show(BossBoard(g => StepUntil(g, () => g.BossBlock.Time >= 0.7, 3)), hint: true));
+        yield return ("connate/boss-land-ring", () => Show(BossBoard(g =>
+        {
+            StepUntil(g, () => g.BossBlock.Phase == ConnateBossPhase.Land, 3);
+            StepUntil(g, () => g.BossBlock.Time >= 0.12, 1);
+        }), hint: true));
+        yield return ("connate/boss-fight-cracks", () => Show(BossBoard(g =>
+        {
+            StepUntil(g, () => g.BossBlock.Phase == ConnateBossPhase.Fight, 6);
+            for (int hit = 0; hit < 2; hit++)
+            {
+                T_RenderArcade.Play(g, [new(0.8)]);
+                SetProp(g, "PlayerAngle", 1.2 + hit * 2.2);
+                T_RenderArcade.Play(g, [new(0.04, Cross: true), new(0.01)]);
+                StepUntil(g, () => g.BossBlock.Hits > hit, 1);
+            }
+            T_RenderArcade.Play(g, [new(0.6)]);
+        }), hint: true));
+        yield return ("connate/boss-break", () => Show(BossBoard(g =>
+        {
+            StepUntil(g, () => g.BossBlock.Phase == ConnateBossPhase.Fight, 6);
+            for (int hit = 0; hit < g.BossBlock.Bombs; hit++)
+            {
+                StepUntil(g, () => g.HeldIsBomb && !g.BombDelivering, 3);
+                T_RenderArcade.Play(g, [new(0.3)]);
+                SetProp(g, "PlayerAngle", 0.9 + hit * 2.4);
+                T_RenderArcade.Play(g, [new(0.04, Cross: true), new(0.01)]);
+                StepUntil(g, () => g.BossBlock.Hits > hit, 1);
+            }
+            StepUntil(g, () => g.BossBlock.Phase == ConnateBossPhase.Break && g.BossBlock.Time >= 0.35, 2);
+        }), hint: true));
         // ── PetalPop ──
         yield return ("petalpop/title", () => T_RenderArcade.Game(PetalPop.GameId, played: false));
         yield return ("petalpop/game-over", () => T_RenderArcade.Game(PetalPop.GameId, gameOver: true));
@@ -140,7 +220,53 @@ internal static class T_RenderScreens
         }), hint: true));
     }
 
+    /// <summary>A Connate run whose board was just emptied with a level-5 bank and two bombs waiting, then driven
+    /// by <paramref name="drive"/>. The bodies are cleared by reflection, as the probe does: an honest empty board
+    /// is a bomb on the last tile of a board that has exactly one.</summary>
+    private static Connate BossBoard(Action<Connate> drive)
+    {
+        var g = (Connate)T_RenderArcade.Create(Connate.GameId);
+        T_RenderArcade.Play(g, [new(1.3)]);
+        SetProp(g, "ExplodedValue", 900L);
+        SetProp(g, "CollectedScore", 900L);
+        SetProp(g, "DisplayedScore", 900.0);
+        SetProp(g, "PendingBombs", 2);
+        typeof(Connate).GetField("_announcedStageIndex", Inst)!.SetValue(g, 4);
+        ((List<ConnateBody>)typeof(Connate).GetField("_bodies", Inst)!.GetValue(g)!).Clear();
+        T_RenderArcade.Play(g, [new(0.02)]);
+        drive(g);
+        return g;
+    }
+
+    /// <summary>A Connate profile with starts up to <paramref name="unlocked"/> unlocked, played into a run that
+    /// began at <paramref name="start"/>, for the pause menu's START AT STAGE row.</summary>
+    private static Connate StartProfile(int unlocked, int start)
+    {
+        var g = (Connate)T_RenderArcade.Create(Connate.GameId);
+        g.SeedHighScore(1234);
+        g.RestoreSettings($"{{\"Radial\":false,\"Unlocked\":{unlocked}}}");
+        g.ApplyPauseOption(Connate.StartKey, Array.IndexOf(g.Starts.Offered(), start));
+        T_RenderArcade.Play(g, [new(0.4)]);
+        return g;
+    }
+
+    private static void StepUntil(Connate g, Func<bool> done, double limitSeconds)
+    {
+        double dt = ArcadeTuning.StepSeconds;
+        for (double spent = 0; spent < limitSeconds && !done(); spent += dt) g.Step(default, dt);
+    }
     // ── Plumbing ─────────────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>Render with <c>Loc.Lang</c> pointed at another language, restored afterwards. The setter is private
+    /// because the app fixes the language per run; the harness is the one caller allowed to move it.</summary>
+    private static RenderedFrame InLang(string code, Func<RenderedFrame> render)
+    {
+        var p = typeof(Loc).GetProperty("Lang") ?? throw new MissingMemberException("Loc.Lang");
+        object? before = p.GetValue(null);
+        p.SetValue(null, code);
+        try { return render(); }
+        finally { p.SetValue(null, before); }
+    }
 
     private static void SetProp(object target, string name, object value) =>
         (target.GetType().GetProperty(name, Inst) ?? throw new MissingMemberException(target.GetType().Name, name))
@@ -148,13 +274,15 @@ internal static class T_RenderScreens
 
     /// <summary>The game in the round window, through the same host wiring as the matrix's <c>Game</c>.
     /// <paramref name="hint"/> false leaves the △/START how-to hint up, as a fresh session shows it.</summary>
-    private static RenderedFrame Show(IArcadeGame game, bool hint)
+    private static RenderedFrame Show(IArcadeGame game, bool hint, bool paused = false, Action<object>? state = null)
     {
         var c = T_RenderArcade.NewControl();
         T_Render.Set(c, "_game", game);
         T_Render.Set(c, "_renderer", T_RenderArcade.Renderer(game.Id));
         T_Render.Set(c, "_howToSeen", hint);
         T_Render.Set(c, "_musicOn", true);
+        if (paused) T_Render.Set(c, "_paused", true);
+        state?.Invoke(c);
         return T_RenderArcade.Frame(c, capture: true);
     }
 

@@ -102,16 +102,18 @@ must keep both hosts accepted while older versions are in use.
 
 `.github/workflows/release.yml` runs on a `v<ver>` tag, checks that the tag equals the source version, runs
 `tools\build-installer.ps1 -Public`, and attaches `Radiata-<ver>-setup.exe` and `latest.json` to a draft
-release. The feed is uploaded separately, after the release is published: it points at the release asset, so
-advertising it first would 404. The release build adds licensed sound files that are not in this repository
+release, after `tests.yml` has passed on the same commit. The feed is uploaded separately, after the release is
+published: it points at the release asset, so advertising it first would 404. The release build adds licensed sound files that are not in this repository
 ([../THIRD-PARTY-LICENSES.md](../THIRD-PARTY-LICENSES.md), section 4c); a build without them has no arcade sound
 effects.
 
 ## Signing
 
 Signing covers the inner executables (`Radiata.exe`, `ArcadeHost\Radiata.ArcadeHost.exe`) and the setup EXE, and
-runs only when the `SIGNING_ENABLED` repository variable is `true`; otherwise the same pipeline produces an
-unsigned setup EXE. The script runs in two halves so the inner signing can happen between them:
+is mandatory for a release: the workflow's first job fails the run unless the `SIGNING_ENABLED` repository
+variable is `true`. A manual run may tick `allow_unsigned` for a rehearsal build, which stops after compiling the
+unsigned setup EXE and publishes nothing, writes no `latest.json` and drafts no release. The script runs in two
+halves so the inner signing can happen between them:
 
 1. `-Public -StageOnly` publishes into `publish\installer-staging-<guid>` and records the version and flavour in
    `staging-version.txt`.

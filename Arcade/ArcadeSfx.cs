@@ -223,7 +223,10 @@ internal static class ArcadeSfx
     private static readonly Bank CnChainLayer     = B(Family.Connate, "chain-layer",     0.45f, 0,    "connate-chain-layer");
     private static readonly Bank CnCollect        = B(Family.Connate, "collect",         0.40f, 0.04, "connate-collect");
     private static readonly Bank CnCombo          = B(Family.Connate, "combo",           0.45f, 0.02, "connate-combo");
-    private static readonly Bank CnBombEarned     = B(Family.Connate, "bomb-earned",     0.65f, 0,    "connate-bomb-earned");
+    // ⚠ Deliberate cross-game reuse: the earned-bomb cue plays Kabloom's level-up take; don't swap in a
+    // Connate-only sample. Both takes are normalised to the default peak, so this bank's 0.65 mix
+    // position holds; Kabloom keeps its own use of the sample.
+    private static readonly Bank CnBombEarned     = B(Family.Connate, "bomb-earned",     0.65f, 0,    "kabloom-levelup");
     private static readonly Bank CnBombExplode    = B(Family.Connate, "bomb-explode",    0.75f, 0.03, "connate-bomb-explode");
     private static readonly Bank CnBombGlass      = B(Family.Connate, "bomb-glass",      0.55f, 0.03, "connate-bomb-glass");
     private static readonly Bank CnBoardClear     = B(Family.Connate, "boardclear",      0.80f, 0,    "connate-boardclear");
@@ -406,7 +409,11 @@ internal static class ArcadeSfx
         /// <summary>A merge: flat, not pitched by rank — the restored original is one fixed blip.</summary>
         public static void Merge() => Play(CnMerge, pitch: MergePitch);
         /// <summary>A cascade: the merge blip plus a metal tail that climbs with the chain depth.</summary>
-        public static void Chain(int depth) => Layer(CnMerge, CnChainLayer, 50, ladderSecond: depth - 1, pitchFirst: MergePitch);
+        public static void Chain(int depth)
+        {
+            if (Throttled(CnChainLayer, ArcadeSfxTuning.ChainMinIntervalMs)) return;
+            Layer(CnMerge, CnChainLayer, 50, ladderSecond: depth - 1, pitchFirst: MergePitch);
+        }
         public static void Collect()          => Play(CnCollect);
         public static void ComboStep(int n)   => Play(CnCombo, n);
         public static void BombEarned()       => Play(CnBombEarned);

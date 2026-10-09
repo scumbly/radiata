@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -68,6 +69,27 @@ internal static class T_Config
             cfg = ConfigLoader.TryParse("{\"system\":{\"sliceMaterial\":\"terra\"}}");
             H.Check("legacy \"terra\" → \"mesa\"", cfg?.System?.SliceMaterial == "mesa",
                     $"got \"{cfg?.System?.SliceMaterial}\"");
+        }
+
+        // ── an explicit null on a collection a consumer dereferences → empty, never null ─────────────
+        {
+            var cfg = ConfigLoader.TryParse(
+                "{\"system\":{\"triggerModes\":null,\"disabledStorefronts\":null,\"knownControllerKinds\":null,\"safeModeApps\":null}}");
+            H.Check("null collections parse", cfg is not null);
+            var s = cfg?.System;
+            H.Check("\"triggerModes\": null → empty map", s?.TriggerModes is { Count: 0 });
+            H.Check("TriggerModesFor falls back to the kind's default",
+                    s is not null && s.TriggerModesFor(ControllerKind.Xbox)
+                        .SequenceEqual(new[] { TriggerModes.DefaultFor(ControllerKind.Xbox) }));
+            H.Check("\"disabledStorefronts\": null → empty list", s?.DisabledStorefronts is { Count: 0 });
+            H.Check("\"knownControllerKinds\": null → empty list", s?.KnownControllerKinds is { Count: 0 });
+            H.Check("\"safeModeApps\": null → empty list", s?.SafeModeApps is { Count: 0 });
+
+            var el = ConfigLoader.TryParse(
+                "{\"system\":{\"disabledStorefronts\":[null,\"gog\"],\"knownControllerKinds\":[\"Xbox\",null]}}");
+            H.Check("null list elements dropped",
+                    el?.System.DisabledStorefronts.SequenceEqual(new[] { "gog" }) == true
+                    && el.System.KnownControllerKinds.SequenceEqual(new[] { "Xbox" }));
         }
 
         // ── an unresolvable custom token renders as Pearl but is kept for the next save ───────────────
@@ -228,5 +250,101 @@ internal static class T_Config
                     && rs.ShowTrayIcon == sys.ShowTrayIcon && rs.ObsPort == sys.ObsPort
                     && rs.DpadHorizontalMode == sys.DpadHorizontalMode && rs.MixBalance == sys.MixBalance);
         }
+
+        MirroredFieldsCases();
+    }
+
+    /// <summary>The write-back guard for Settings controls that mirror fields an outside writer also owns.
+    /// A tiny fake "control" stands in for the WPF one: a bool, a (thickness, demoted) pair and a trigger list.</summary>
+    private static void MirroredFieldsCases()
+    {
+        H.Group("MirroredFields — a Settings control writes a shared field only when the user moved it");
+
+        bool safe = false; string thick = "medium"; bool demoted = false;
+        var tokens = new List<string> { "fn" };
+        var mirror = new MirroredFields()
+            .Add("safe", c => c.CaptureSafeMode, () => safe, (c, v) => c with { CaptureSafeMode = v })
+            .Add("thickness", c => (Thickness: c.SliceThickness, Demoted: c.ThickAutoDemoted),
+                 () => (Thickness: thick, Demoted: demoted),
+                 (c, v) => c with { SliceThickness = v.Thickness, ThickAutoDemoted = v.Demoted })
+            .Add<List<string>>("triggers", c => new List<string>(c.TriggerModesFor(ControllerKind.DualSenseEdge)),
+                 () => tokens,
+                 (c, v) => c with { TriggerModes = new Dictionary<string, List<string>>(c.TriggerModes)
+                                                   { [ControllerKind.DualSenseEdge.ToString()] = new List<string>(v) } },
+                 MirroredFields.StringSequence, MirroredFields.CopyStrings);
+
+        var loaded = new SystemConfig
+        {
+            TriggerModes = new() { [ControllerKind.DualSenseEdge.ToString()] = new List<string> { "fn" } },
+        };
+
+        H.Check("a control not yet captured writes nothing",
+                mirror.ApplyTo(loaded with { CaptureSafeMode = true }).CaptureSafeMode);
+        mirror.Capture(loaded);
+
+        var outside = loaded with
+        {
+            CaptureSafeMode = true, SliceThickness = "thin", ThickAutoDemoted = true,
+            TriggerModes = new() { [ControllerKind.DualSenseEdge.ToString()] = new List<string> { "l3r3" },
+                                   ["Xbox"] = new List<string> { "view" } },
+        };
+        var saved = mirror.ApplyTo(outside);
+        H.Check("untouched controls keep every value an outside writer set",
+                saved.CaptureSafeMode && saved.SliceThickness == "thin" && saved.ThickAutoDemoted
+                && saved.TriggerModesFor(ControllerKind.DualSenseEdge).SequenceEqual(new[] { "l3r3" })
+                && saved.TriggerModes.ContainsKey("Xbox"));
+        H.Check("…and the outside change is reported for the host's refresh", mirror.ChangedOutside(outside));
+        H.Check("a config that still matches what the control was loaded from reports nothing",
+                !mirror.ChangedOutside(loaded));
+
+        mirror.NoteSaved(saved);
+        H.Check("a save that wrote none of them leaves the outside change reported until the control re-Loads",
+                mirror.ChangedOutside(saved));
+        safe = true; thick = "thin"; demoted = true; tokens = new List<string> { "l3r3" };
+        mirror.Capture(saved);
+        H.Check("a re-Load re-bases every field", !mirror.ChangedOutside(saved));
+
+        // The user moves two controls while the config also moved both: the user's values win, the rest stay.
+        tokens = new List<string> { "fn", "touchpad" };
+        thick = "thick"; demoted = false;
+        var both = saved with
+        {
+            CaptureSafeMode = false, SliceThickness = "medium",
+            TriggerModes = new() { [ControllerKind.DualSenseEdge.ToString()] = new List<string> { "other" },
+                                   ["Xbox"] = new List<string> { "view" } },
+        };
+        var written = mirror.ApplyTo(both);
+        H.Check("a control the user moved wins over an outside change to the same field",
+                written.SliceThickness == "thick" && !written.ThickAutoDemoted
+                && written.TriggerModesFor(ControllerKind.DualSenseEdge).SequenceEqual(new[] { "fn", "touchpad" }));
+        H.Check("…while a control the user left alone keeps the outside value", !written.CaptureSafeMode);
+        H.Check("…and the other controller kinds' choices come from the live config", written.TriggerModes.ContainsKey("Xbox"));
+
+        mirror.NoteSaved(written);
+        H.Check("after a save the written controls are in step again: a later outside value is kept",
+                mirror.ApplyTo(written with { SliceThickness = "thin" }).SliceThickness == "thin");
+        H.Check("a field the save did not write is still reported as changed outside", mirror.ChangedOutside(written));
+
+        // A list is compared by value: a fresh equal list is not a move; an edit in place is one.
+        mirror.Capture(written);
+        var probe = written with
+        {
+            TriggerModes = new() { [ControllerKind.DualSenseEdge.ToString()] = new List<string> { "zzz" } },
+        };
+        tokens = new List<string>(tokens);
+        H.Check("an equal copy of the list is not a change",
+                mirror.ApplyTo(probe).TriggerModesFor(ControllerKind.DualSenseEdge).SequenceEqual(new[] { "zzz" }));
+        tokens.Add("select");
+        H.Check("an edit in place to the list is seen as a change",
+                mirror.ApplyTo(probe).TriggerModesFor(ControllerKind.DualSenseEdge).SequenceEqual(tokens));
+
+        // One field of the set can be re-based alone.
+        thick = "thin";
+        H.Check("without a re-base the moved thickness control writes",
+                mirror.ApplyTo(probe).SliceThickness == "thin");
+        mirror.Rebase("thickness", probe with { SliceThickness = "thin" });
+        H.Check("Rebase re-snapshots only the named field",
+                mirror.ApplyTo(probe).SliceThickness == probe.SliceThickness
+                && mirror.ApplyTo(probe).TriggerModesFor(ControllerKind.DualSenseEdge).SequenceEqual(tokens));
     }
 }

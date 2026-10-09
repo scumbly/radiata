@@ -31,8 +31,51 @@ public partial class CustomizeEditorControl : UserControl
 
     private bool _loading;
     private ControllerKind _kind = ControllerKind.DualSenseEdge;     // the detected controller this tab edits
-    private Dictionary<string, List<string>> _triggerModes = new();  // per-kind trigger choices (other kinds preserved)
     private SystemConfig _loadedCfg = new();                          // base for Reset (keeps unrelated fields intact)
+
+    // The setup wizard and the open wheel's material cycle write these fields while Settings is open, so each
+    // is written only when the user moved its control (docs/SETTINGS-UI.md, the mirrored-controls rule).
+    // A field that is one decision across several keys is registered once, as a tuple.
+    private readonly MirroredFields _mirror;
+
+    private MirroredFields BuildMirror() => new MirroredFields()
+        .Add<List<string>?>("triggerModes",
+            c => new List<string>(c.TriggerModesFor(_kind)),
+            ActiveKindTriggers,
+            // Only the detected kind's entry is this tab's; every other kind keeps what the config holds now.
+            (c, v) => c with { TriggerModes = new Dictionary<string, List<string>>(c.TriggerModes)
+                                              { [_kind.ToString()] = new List<string>(v!) } },
+            MirroredFields.StringSequence, MirroredFields.CopyStrings)
+        .Add("sliceMaterial",
+            c => (Material: NormalizeMaterial(c.SliceMaterial), Picked: false),
+            () => (Material: _sliceMaterial, Picked: _materialPicked),
+            // A deliberate pick also releases a held (unresolvable) custom token; otherwise it stays.
+            (c, v) => c with
+            {
+                SliceMaterial        = v.Material,
+                GameGridMaterial     = v.Material,   // the grid follows the wheel (its tiles are disabled)
+                HeldSliceMaterial    = v.Picked ? null : c.HeldSliceMaterial,
+                HeldGameGridMaterial = v.Picked ? null : c.HeldGameGridMaterial,
+            })
+        .Add("sliceThickness",
+            c => (Thickness: c.SliceThickness is "thin" or "medium" or "thick" ? c.SliceThickness : "medium",
+                  Demoted: c.ThickAutoDemoted),
+            () => (Thickness: _thickness, Demoted: _thickAutoDemoted),
+            (c, v) => c with { SliceThickness = v.Thickness, ThickAutoDemoted = v.Demoted })
+        .Add("soundEffects",
+            c => (Effects: c.SoundEffects, Theme: c.SoundTheme),
+            // "Silent" keeps the LAST theme picked this session (_lastTheme, not the window-open snapshot,
+            // which would discard a mid-session theme change); else the selection IS the theme.
+            () => (Effects: _sfx != "none", Theme: _sfx is "material" or "physical" or "digital" ? _sfx : _lastTheme),
+            (c, v) => c with { SoundEffects = v.Effects, SoundTheme = v.Theme });
+
+    /// <summary>True when the config's mirrored fields moved away from what this tab last showed — a write
+    /// made outside Settings, which <see cref="ApplyTo"/> alone cannot report because it keeps the config's
+    /// value for a control the user has not touched.</summary>
+    public bool ChangedOutside(SystemConfig cfg) => _mirror.ChangedOutside(cfg);
+
+    /// <summary>A save just wrote <paramref name="saved"/>.</summary>
+    public void NoteSaved(SystemConfig saved) => _mirror.NoteSaved(saved);
 
     /// <summary>Whether a pad is actually present. Only the Best-guess tile's preview reads it, and only to
     /// mirror App.ApplyGlyphSet: with no pad, "auto" resolves to Xbox, so the tile must not promise
@@ -42,6 +85,7 @@ public partial class CustomizeEditorControl : UserControl
     public CustomizeEditorControl()
     {
         InitializeComponent();
+        _mirror = BuildMirror();
         // A static event: subscribe only while on screen, or a closed Settings window stays reachable.
         Loaded   += (_, _) => { PackageInstallFlow.RegistryChanged -= OnPackageRegistryChanged;
                                 PackageInstallFlow.RegistryChanged += OnPackageRegistryChanged;
@@ -64,7 +108,6 @@ public partial class CustomizeEditorControl : UserControl
         _loading = true;
         _kind = kind;
         _loadedCfg = cfg;
-        _triggerModes = cfg.TriggerModes.ToDictionary(kv => kv.Key, kv => new List<string>(kv.Value));
         PopulateTriggerModes(cfg);
         BuildTiles();
         _thickness     = cfg.SliceThickness is "thin" or "medium" or "thick" ? cfg.SliceThickness! : "medium";
@@ -91,19 +134,15 @@ public partial class CustomizeEditorControl : UserControl
         SelectTile(SoundFxTiles, _sfx);
         RefreshSoundTiles();   // the selected tile's glyph carries its accent colour
         UpdateThicknessForSliceCount();
+        _mirror.Capture(cfg);
         _loading = false;
     }
 
     /// <summary>Fold this tab's fields into <paramref name="cfg"/> (a `with` copy — every field this tab
-    /// doesn't own passes through untouched).</summary>
-    public SystemConfig ApplyTo(SystemConfig cfg) => cfg with
+    /// doesn't own passes through untouched). The trigger chord, material, thickness and sound pick are
+    /// folded by <c>_mirror</c>, each only when its control was moved.</summary>
+    public SystemConfig ApplyTo(SystemConfig cfg) => _mirror.ApplyTo(cfg) with
     {
-        SliceThickness    = _thickness,
-        ThickAutoDemoted  = _thickAutoDemoted,
-        SliceMaterial     = _sliceMaterial,
-        GameGridMaterial  = _sliceMaterial,   // TEMPORARY: the grid follows the wheel (its tiles are disabled)
-        HeldSliceMaterial    = _materialPicked ? null : cfg.HeldSliceMaterial,
-        HeldGameGridMaterial = _materialPicked ? null : cfg.HeldGameGridMaterial,
         ButtonGlyphs      = _glyphs,
         // ⚠ The six Accessibility fields (SwapFnButtons / WheelIgnoresOppositeStick / AlwaysShowHub /
         // ReduceMotion / Narration / TriggerActivation) belong to Settings ▸ Advanced and must NOT be
@@ -111,11 +150,6 @@ public partial class CustomizeEditorControl : UserControl
         // write here would be silently discarded. D-Pad + Show labels are this tab's.
         DpadHorizontalMode = (DpadModeBox.SelectedItem as ComboBoxItem)?.Tag as string ?? "switcher",
         ShowSliceLabels   = (ShowSliceLabelsBox.SelectedItem as ComboBoxItem)?.Tag as string ?? SliceLabelRule.Default,
-        TriggerModes      = TriggerModesForSave(),
-        SoundEffects      = _sfx != "none",
-        // "Silent" keeps the LAST theme picked this session (_lastTheme, not the window-open snapshot,
-        // which would discard a mid-session theme change); else the selection IS the theme.
-        SoundTheme        = _sfx is "material" or "physical" or "digital" ? _sfx : _lastTheme,
     };
 
     /// <summary>A Sound-effects tile click also PREVIEWS the pick's fire sound ("Themed" resolves to the
@@ -170,6 +204,7 @@ public partial class CustomizeEditorControl : UserControl
         _thickAutoDemoted = cfg.ThickAutoDemoted;
         SelectTile(ThicknessTiles, _thickness);
         RefreshSliceTiles();
+        _mirror.Rebase("sliceThickness", cfg);
         _loading = prev;
     }
 
@@ -1065,7 +1100,7 @@ public partial class CustomizeEditorControl : UserControl
             foreach (var m in ControllerWheel.TriggerModes.ModifiersFor(p, _kind))
             {
                 // The primary decides the wording for a few pairings ("(none)" instead of a dash, the
-                // opposite-hand shoulders) — the Tag (used by TriggerModesForSave to compose the saved
+                // opposite-hand shoulders) — the Tag (used by ActiveKindTriggers to compose the saved
                 // token) is untouched.
                 modBox.Items.Add(new ComboBoxItem
                 { Content = ControllerWheel.TriggerModes.ModifierLabel(m, p), Tag = m });
@@ -1124,14 +1159,12 @@ public partial class CustomizeEditorControl : UserControl
 
     private void OnTriggerRowsChanged() { if (!_loading) Changed?.Invoke(this, EventArgs.Empty); }
 
-    /// <summary>The per-kind trigger map to persist: other controller kinds' saved choices preserved, the
-    /// detected kind's entry rebuilt from the builder rows (each row's (primary, modifier) composed to a
-    /// token, in order, de-duplicated), plus any loaded LEGACY tokens the builder can't represent (they
-    /// keep working at runtime; dropping them here would silently kill a configured gesture on save).
-    /// Falls back to the kind's default if nothing else survives.</summary>
-    private Dictionary<string, List<string>> TriggerModesForSave()
+    /// <summary>The detected kind's trigger tokens to persist, rebuilt from the builder rows (each row's
+    /// (primary, modifier) composed to a token, in order, de-duplicated), plus any loaded LEGACY tokens the
+    /// builder can't represent (they keep working at runtime; dropping them here would silently kill a
+    /// configured gesture on save). Falls back to the kind's default if nothing else survives.</summary>
+    private List<string> ActiveKindTriggers()
     {
-        var map = new Dictionary<string, List<string>>(_triggerModes);
         var chosen = new List<string>();
         foreach (var row in TriggerRows.Children.OfType<Grid>())
         {
@@ -1142,8 +1175,7 @@ public partial class CustomizeEditorControl : UserControl
         }
         foreach (var t in _legacyTokens)
             if (!chosen.Contains(t)) chosen.Add(t);
-        map[_kind.ToString()] = chosen.Count > 0 ? chosen : [ControllerWheel.TriggerModes.DefaultFor(_kind)];
-        return map;
+        return chosen.Count > 0 ? chosen : [ControllerWheel.TriggerModes.DefaultFor(_kind)];
     }
 
     // ── D-Pad + "Show labels on" ──────────────────────────────────────────────────────────────────

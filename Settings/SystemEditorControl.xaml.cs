@@ -88,7 +88,46 @@ public partial class SystemEditorControl : UserControl
         InitLanguagePicker();
         RefreshDiscordButton();
         RefreshObsButton();
+        _mirror = new MirroredFields()
+            .Add("language",             c => c.Language,             () => _language,
+                 (c, v) => c with { Language = v })
+            .Add("steamGridDbKey",       c => KeyText(SecretField.ToPlaintext(c.SteamGridDbKey)),
+                 () => KeyText(SgdbKeyBox.Text),
+                 (c, v) => c with { SteamGridDbKey = SecretField.ToStoredStable(v, c.SteamGridDbKey) })
+            .Add("preferPlayniteCovers", c => c.PreferPlayniteCovers, () => PreferPlayniteBox.IsChecked == true,
+                 (c, v) => c with { PreferPlayniteCovers = v })
+            .Add("triggerActivation",    c => c.TriggerActivation == "toggle", () => ToggleActivationBox.IsChecked == true,
+                 (c, v) => c with { TriggerActivation = v ? "toggle" : "hold" })
+            .Add("swapFnButtons",        c => c.SwapFnButtons,        () => SwapFnBox.IsChecked == true,
+                 (c, v) => c with { SwapFnButtons = v })
+            .Add("wheelIgnoresOppositeStick", c => c.WheelIgnoresOppositeStick, () => IgnoreOppositeStickBox.IsChecked == true,
+                 (c, v) => c with { WheelIgnoresOppositeStick = v })
+            .Add("alwaysShowHub",        c => c.AlwaysShowHub,        () => AlwaysShowHubBox.IsChecked == true,
+                 (c, v) => c with { AlwaysShowHub = v })
+            .Add("reduceMotion",         c => c.ReduceMotion,         () => ReduceMotionBox.IsChecked == true,
+                 (c, v) => c with { ReduceMotion = v })
+            .Add("narration",            c => c.Narration,            () => NarrationBox.IsChecked == true,
+                 (c, v) => c with { Narration = v })
+            .Add("crashPromptEnabled",   c => c.CrashPromptEnabled,   () => CrashPromptBox.IsChecked == true,
+                 (c, v) => c with { CrashPromptEnabled = v })
+            .Add("crashAutoSend",        c => c.CrashAutoSend,        () => CrashAutoSendBox.IsChecked == true,
+                 (c, v) => c with { CrashAutoSend = v });
     }
+
+    // The fields below can also be written from outside Settings (the setup wizard, the crash window, the
+    // Narrator seed), so each is written only when the user moved its control (docs/SETTINGS-UI.md, the
+    // mirrored-controls rule).
+    private readonly MirroredFields _mirror;
+
+    private static string? KeyText(string? key) => string.IsNullOrWhiteSpace(key) ? null : key.Trim();
+
+    /// <summary>True when the config's mirrored fields moved away from what this tab last showed — a write
+    /// made outside Settings, which <see cref="ApplyTo"/> alone cannot report because it keeps the config's
+    /// value for a control the user has not touched.</summary>
+    public bool ChangedOutside(SystemConfig cfg) => _mirror.ChangedOutside(cfg);
+
+    /// <summary>A save just wrote <paramref name="saved"/>.</summary>
+    public void NoteSaved(SystemConfig saved) => _mirror.NoteSaved(saved);
 
     /// <summary>Owned SystemConfig.Language: null = follow Windows, never rewritten to a code until the user picks.</summary>
     private string? _language;
@@ -274,6 +313,7 @@ public partial class SystemEditorControl : UserControl
         CrashAutoSendBox.IsChecked = cfg.CrashAutoSend;
         RefreshUpdateAvailability();
 
+        _mirror.Capture(cfg);
         _loading = false;
     }
 
@@ -600,15 +640,13 @@ public partial class SystemEditorControl : UserControl
 
     /// <summary>Fold this tab's fields into <paramref name="cfg"/> (a `with` copy — every field this tab
     /// doesn't own passes through untouched, so first-run fields survive a save).</summary>
-    public SystemConfig ApplyTo(SystemConfig cfg) => cfg with
+    public SystemConfig ApplyTo(SystemConfig cfg) => _mirror.ApplyTo(cfg) with
     {
-        Language = _language,
-        // DPAPI at rest; ToStoredStable reuses the existing blob when the key text didn't change, so a
-        // save doesn't churn the config with a fresh (always-different) encryption of the same secret.
-        SteamGridDbKey       = SecretField.ToStoredStable(
-                                   string.IsNullOrWhiteSpace(SgdbKeyBox.Text) ? null : SgdbKeyBox.Text.Trim(),
-                                   cfg.SteamGridDbKey),
-        PreferPlayniteCovers = PreferPlayniteBox.IsChecked == true,
+        // Language, SteamGridDbKey (DPAPI at rest; ToStoredStable reuses the existing blob when the key text
+        // didn't change, so a save doesn't churn the config with a fresh encryption of the same secret),
+        // PreferPlayniteCovers, the Accessibility toggles the wizard also writes (TriggerActivation,
+        // SwapFnButtons, WheelIgnoresOppositeStick, AlwaysShowHub, ReduceMotion, Narration) and the two
+        // crash-reporting choices are folded by _mirror above: each only when its control was moved.
         // OBS connection (this tab's, since Integrations owns the setup pane). Only a dirty copy writes, so
         // a save can't revert a change made elsewhere while Settings was open.
         ObsPort              = _obsDirty ? _obsPort           : cfg.ObsPort,
@@ -620,13 +658,7 @@ public partial class SystemEditorControl : UserControl
         DisabledStorefronts  = TakeStorefrontReset(cfg.DisabledStorefronts),
         // ⚠ DpadHorizontalMode / ShowSliceLabels belong to Customize and must NOT be written here: this
         // `with` runs LAST in SettingsWindow.Save, so writing them would clobber the user's pick.
-        // The six Accessibility fields below ARE this tab's — CustomizeEditorControl writes none of them.
-        TriggerActivation    = ToggleActivationBox.IsChecked == true ? "toggle" : "hold",
-        SwapFnButtons        = SwapFnBox.IsChecked == true,
-        WheelIgnoresOppositeStick = IgnoreOppositeStickBox.IsChecked == true,
-        AlwaysShowHub        = AlwaysShowHubBox.IsChecked == true,
-        ReduceMotion         = ReduceMotionBox.IsChecked == true,
-        Narration            = NarrationBox.IsChecked == true,
+        // The six Accessibility fields ARE this tab's — CustomizeEditorControl writes none of them.
         NarratorTipDismissed = _narratorTipDismissed,
         PracticeWhileSettingsOpen = PracticeSettingsBox.IsChecked == true,
         // Read even while the box is hidden (no Bluetooth pad connected): it still holds the value Load
@@ -635,8 +667,6 @@ public partial class SystemEditorControl : UserControl
         // Updates section (this tab owns both toggles; UpdateSkippedVersion is the prompt window's
         // field and passes through untouched).
         UpdateCheckEnabled   = UpdateCheckBox.IsChecked == true,
-        CrashPromptEnabled   = CrashPromptBox.IsChecked == true,
-        CrashAutoSend        = CrashAutoSendBox.IsChecked == true,
     };
 
     // ── Storefront hides: this tab's only job is the reset ──────────────────────
