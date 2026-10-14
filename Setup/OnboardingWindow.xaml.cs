@@ -1145,11 +1145,11 @@ public partial class OnboardingWindow : Window
             string? foreignBus = vigem ? _hooks.ViGEmForeign() : null;
             string? hh = _hooks.HidHideVersion();
             bool hhUpdate = hh is not null && _hooks.HidHideUpdateAvailable();
-            ViGEmGlyph.Text    = !vigem ? "⬇️" : foreignBus is not null ? "⚠️" : "✅";
+            ViGEmGlyph.Text    = !vigem ? "🢃" : foreignBus is not null ? "⚠️" : "✅";
             ViGEmDetail.Text   = !vigem ? Loc.T(O.ViGEmMissing)
                                : foreignBus is not null ? Loc.F(O.ViGEmForeign, foreignBus)
                                : Loc.T(O.ViGEmOk);
-            HidHideGlyph.Text  = hh is null ? "⬇️" : hhUpdate ? "🔄" : "✅";
+            HidHideGlyph.Text  = hh is null ? "🢃" : hhUpdate ? "🔄" : "✅";
             HidHideDetail.Text = hh is null ? Loc.T(O.HidHideMissing)
                                : Loc.F(hhUpdate ? O.HidHideUpdate : O.HidHideInstalled, hh);
             HidGuardianWarn.Visibility = _hooks.HidGuardianPresent() ? Visibility.Visible : Visibility.Collapsed;

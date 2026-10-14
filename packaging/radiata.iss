@@ -86,6 +86,8 @@ Name: "arabic";   MessagesFile: "compiler:Languages\Arabic.isl"
 ; (the one remedy the stock text never names), and a briefly AV-held file is deleted by the later passes
 ; anyway (the failure flag latches on the FIRST failed delete and never clears). Genuine leftovers get
 ; their own explicit list from usPostUninstall before this message appears.
+; UninstalledAll names the same restart: on a clean outcome the cleanup hook shows no dialog of its own, so
+; this closing message is the only place a driver removal's pending restart is mentioned.
 english.FinishedLabel=Setup has finished installing [name] on your computer.
 spanish.FinishedLabel=El programa de instalación ha terminado de instalar [name] en su equipo.
 german.FinishedLabel=Das Setup hat die Installation von [name] auf Ihrem Computer abgeschlossen.
@@ -96,6 +98,11 @@ spanish.UninstalledMost=Desinstalación de Radiata completada.%n%nWindows termin
 german.UninstalledMost=Die Deinstallation von Radiata ist abgeschlossen.%n%nWindows erledigt einen Teil der Bereinigung selbst – wurden die Controller-Treiber entfernt, schließt ein Neustart (jetzt oder später) ihre Entfernung ab. Es muss nichts von Hand entfernt werden, sofern nicht gerade eine Liste verbliebener Dateien angezeigt wurde.
 japanese.UninstalledMost=Radiata のアンインストールが完了しました。%n%n残りのクリーンアップは Windows が自動的に行います。コントローラードライバーを削除した場合は、再起動（今すぐ、または都合のよいときに）で削除が完了します。残ったファイルの一覧が直前に表示されていなければ、手動で削除するものはありません。
 arabic.UninstalledMost=اكتمل إلغاء تثبيت Radiata.%n%nسينهي Windows بعض التنظيف من تلقاء نفسه. إذا أزيلت برامج تشغيل وحدة التحكم، فإن إعادة التشغيل (الآن أو في الوقت المناسب لك) تكمل إزالتها. لا يلزم إزالة أي شيء يدويًا ما لم تعرض للتو قائمة بالملفات المتبقية.
+english.UninstalledAll=Radiata was removed from your computer.%n%nIf you removed the controller drivers, restarting Windows (now or later) finishes removing them.
+spanish.UninstalledAll=Radiata se eliminó de su equipo.%n%nSi eliminó los controladores del mando, reiniciar Windows (ahora o más tarde) completa su eliminación.
+german.UninstalledAll=Radiata wurde von Ihrem Computer entfernt.%n%nWenn Sie die Controller-Treiber entfernt haben, schließt ein Neustart von Windows (jetzt oder später) ihre Entfernung ab.
+japanese.UninstalledAll=Radiata をコンピューターから削除しました。%n%nコントローラードライバーを削除した場合は、Windows を再起動する（今すぐ、または後で）と削除が完了します。
+arabic.UninstalledAll=تمت إزالة Radiata من جهازك.%n%nإذا أزلت برامج تشغيل وحدة التحكم، فإن إعادة تشغيل Windows (الآن أو لاحقا) تكمل إزالتها.
 
 [CustomMessages]
 english.InstallDrivers=Install drivers (recommended)
@@ -420,7 +427,8 @@ begin
     Log('Radiata cleanup hook exit code ' + IntToStr(rc));
     if rc <> 0 then
     begin
-      if not UninstallSilent then
+      // 6 = the user declined the cleanup's UAC prompt; Radiata already showed why, so no second box.
+      if (not UninstallSilent) and (rc <> 6) then
         MsgBox(CustomMessage('CleanupFailed'), mbError, MB_OK);
       Abort;
     end;

@@ -38,7 +38,7 @@ internal static class T_RenderArcade
     {
         [Kabloom.GameId] =
         [
-            new(0.5), new(0.05, Cross: true), new(1.6),
+            new(0.5), new(0.05, Cross: true), new(0.3), new(0.05, Cross: true), new(1.6),
             new(0.05, DPad: ArcadeInput.DPad.Right), new(0.2), new(0.05, DPad: ArcadeInput.DPad.Right), new(0.2),
             new(0.05, DPad: ArcadeInput.DPad.Up), new(0.2), new(0.05, Square: true), new(0.6),
         ],
@@ -271,15 +271,18 @@ internal static class T_RenderArcade
         finally { ArcadeCatalog.RegisterScripts([]); }
     }
 
-    internal static RenderedFrame Frame(object c, bool capture)
+    /// <param name="margin">Canvas margin around the disc; the live overlay window is full-screen, so a shot of
+    /// something drawn past the bezel passes a wider one than the matrix's <see cref="Pad"/>.</param>
+    internal static RenderedFrame Frame(object c, bool capture, double margin = Pad)
     {
         var dv = new DrawingVisual();
         using (var dc = dv.RenderOpen())
         {
-            dc.PushTransform(new TranslateTransform(Pad, Pad));
+            dc.PushTransform(new TranslateTransform(margin, margin));
             T_Render.Method(Control, "RenderCore").Invoke(c, [dc]);
             dc.Pop();
         }
-        return capture ? T_Render.Capture(dv, Canvas, Canvas, T_RenderWheel.DpiScale) : null!;
+        double side = Diameter + 2 * margin;
+        return capture ? T_Render.Capture(dv, side, side, T_RenderWheel.DpiScale) : null!;
     }
 }

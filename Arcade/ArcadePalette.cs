@@ -17,6 +17,9 @@ internal static class ArcadePalette
     public static SolidColorBrush Fill(byte r, byte g, byte b, byte a = 255) =>
         Frozen(new SolidColorBrush(Color.FromArgb(a, r, g, b)));
 
+    /// <summary>The wash behind every game's title and end cards.</summary>
+    public static readonly Brush CardScrim = Fill(0x14, 0x1A, 0x33, 0xDD);
+
     /// <summary>A frozen pen with round joins and <paramref name="cap"/> at both ends.</summary>
     public static Pen RoundPen(Brush brush, double width, PenLineCap cap = PenLineCap.Round) =>
         Frozen(new Pen(brush, width) { LineJoin = PenLineJoin.Round, StartLineCap = cap, EndLineCap = cap });

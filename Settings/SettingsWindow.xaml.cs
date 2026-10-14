@@ -21,8 +21,8 @@ public partial class SettingsWindow : Window
     private string _version = "";              // "v0.x.y…" for the Email Log subject (shown only in the title bar)
 
     /// <summary>App hooks for the controller/driver tools — set right after construction (OpenSettings).
-    /// Install/Recover/Controller Setup/HID Diagnostics all live on the Advanced tab's Troubleshooting
-    /// dropdown. Null = that button is a silent no-op.</summary>
+    /// Install/Recover/HID Diagnostics live on the Advanced tab's Troubleshooting dropdown; Controller Setup
+    /// has no entry there (its event stays wired, unraised). Null = that button is a silent no-op.</summary>
     public Action? ControllerSetupHook   { get; set; }
     public Action? InstallDriversHook    { get; set; }
     public Action? HidDiagnosticsHook    { get; set; }

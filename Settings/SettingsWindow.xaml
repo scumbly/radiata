@@ -84,34 +84,34 @@
                 </Grid.ColumnDefinitions>
                 <!-- White card behind the blurb. It must be the FIRST child so the photo circle and its
                      ring paint over it: the card's left edge runs under the circle and is never seen.
-                     Left margin ≈ half the 110px circle; the negative right margin carries the card past
+                     Left margin ≈ half the 121px circle; the negative right margin carries the card past
                      the text column's right edge for even padding. -->
-                <Border Grid.Column="0" Grid.ColumnSpan="2" Margin="52,3,-19,3" CornerRadius="20"
+                <Border Grid.Column="0" Grid.ColumnSpan="2" Margin="57,3,-19,3" CornerRadius="20"
                         Background="{DynamicResource UiNoticeBg}"
                         BorderBrush="{DynamicResource UiCardBorder}" BorderThickness="1"/>
 
                 <!-- The ring is the logo's three colours, a third of the circle each. An Ellipse stroke can
-                     only be one brush, so it's three 120° arcs over an unstroked fill ellipse, radius 53
+                     only be one brush, so it's three 120° arcs over an unstroked fill ellipse, radius 58.5
                      with a 4px stroke. Each seam then gets a short arc laid OVER it carrying a two-stop
                      gradient, so the transitions read as blends rather than hard joints — WPF has no conic
                      gradient, so the gradient runs along the blend arc's CHORD, a close approximation at
                      this arc length. Keep the blend arcs LAST in the Canvas: they must paint on top. -->
-                <Grid Grid.Column="0" VerticalAlignment="Center" Margin="0,0,12,0" Width="110" Height="110">
-                  <Ellipse Width="110" Height="110">
+                <Grid Grid.Column="0" VerticalAlignment="Center" Margin="0,0,12,0" Width="121" Height="121">
+                  <Ellipse Width="121" Height="121">
                     <Ellipse.Fill>
                       <ImageBrush ImageSource="pack://application:,,,/Assets/jesse-and-magpie.png" Stretch="UniformToFill"/>
                     </Ellipse.Fill>
                   </Ellipse>
-                  <Canvas Width="110" Height="110">
+                  <Canvas Width="121" Height="121">
                     <!-- top third — blossom terracotta -->
-                    <Path Stroke="#E07A5F" StrokeThickness="4" Data="M 9.101,28.5 A 53,53 0 0 1 100.899,28.5"/>
+                    <Path Stroke="#E07A5F" StrokeThickness="4" Data="M 9.838,31.25 A 58.5,58.5 0 0 1 111.162,31.25"/>
                     <!-- bottom-right third — sage -->
-                    <Path Stroke="#81B29A" StrokeThickness="4" Data="M 100.899,28.5 A 53,53 0 0 1 55,108"/>
+                    <Path Stroke="#81B29A" StrokeThickness="4" Data="M 111.162,31.25 A 58.5,58.5 0 0 1 60.5,119"/>
                     <!-- bottom-left third — the left leaf's dark blue -->
-                    <Path Stroke="#3D405B" StrokeThickness="4" Data="M 55,108 A 53,53 0 0 1 9.101,28.5"/>
+                    <Path Stroke="#3D405B" StrokeThickness="4" Data="M 60.5,119 A 58.5,58.5 0 0 1 9.838,31.25"/>
 
                     <!-- Seam blends, clockwise from the top. -->
-                    <Path StrokeThickness="4" Data="M 4.594,38.622 A 53,53 0 0 1 15.614,19.536">
+                    <Path StrokeThickness="4" Data="M 4.863,42.422 A 58.5,58.5 0 0 1 17.027,21.356">
                       <Path.Stroke>
                         <LinearGradientBrush StartPoint="0,1" EndPoint="1,0">
                           <GradientStop Offset="0" Color="#3D405B"/>
@@ -119,7 +119,7 @@
                         </LinearGradientBrush>
                       </Path.Stroke>
                     </Path>
-                    <Path StrokeThickness="4" Data="M 94.386,19.536 A 53,53 0 0 1 105.406,38.622">
+                    <Path StrokeThickness="4" Data="M 103.973,21.356 A 58.5,58.5 0 0 1 116.137,42.422">
                       <Path.Stroke>
                         <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
                           <GradientStop Offset="0" Color="#E07A5F"/>
@@ -129,7 +129,7 @@
                     </Path>
                     <!-- Both ends share a y, so this seam's chord is exactly horizontal — the gradient runs
                          right-to-left rather than the other two's top-to-bottom sense. -->
-                    <Path StrokeThickness="4" Data="M 66.019,106.842 A 53,53 0 0 1 43.981,106.842">
+                    <Path StrokeThickness="4" Data="M 72.662,117.722 A 58.5,58.5 0 0 1 48.338,117.722">
                       <Path.Stroke>
                         <LinearGradientBrush StartPoint="1,0" EndPoint="0,0">
                           <GradientStop Offset="0" Color="#81B29A"/>
@@ -158,7 +158,7 @@
                              FontSize="12.5" LineHeight="17"
                              Foreground="#555" TextWrapping="Wrap" Width="262" HorizontalAlignment="Left"
                              loc:LocRich.LookKey="BodyBold"
-                             loc:LocRich.Source="Radiata was made by one guy over a few hundred hours of long nights and weekends. I hope you like using it as much as I do. Your support at any amount helps me keep Radiata free: thank you! [Tip Jar](https://getradiata.app/tip)">
+                             loc:LocRich.Source="Radiata was made by one guy over several months of long nights and weekends. I hope you like using it as much as I do. Your support at any amount helps me keep Radiata free: thank you! [Tip Jar](https://getradiata.app/tip)">
                   </TextBlock>
                 </StackPanel>
               </Grid>

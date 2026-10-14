@@ -18,14 +18,14 @@ public sealed class Connate : IArcadeGame
     [Flags]
     public enum Cue
     {
-        None = 0, Move = 1, Fire = 2, Merge = 4, Chain = 8, Guarded = 16,
+        None = 0, Move = 1, Fire = 2, Merge = 4, ComboLayer = 8, Guarded = 16,
         Warning = 32, Recover = 64, GameOver = 128, NewBest = 256,
         /// <summary>A nugget of value landed in the counter. Rate-limited in the sim rather than the mixer —
         /// see ConnateTuning.ScoreCollectCueMinimumSeconds.</summary>
         Collect = 512,
         /// <summary>The field emptied of every tile and blob (the boss block is coming), a full charge or a board
         /// clear gifted a bomb, a bomb went off (the block takes bomb hits as explosions), a pressure blob arrived or
-        /// was swept, and one more merge counted toward the combo. Split from NewBest and Chain so each reads as
+        /// was swept, and one more merge counted toward the combo. Split from NewBest and ComboLayer so each reads as
         /// its own moment.</summary>
         BoardClear = 1024, BombEarned = 2048, BombExplode = 4096, GarbageArrive = 8192, GarbageCleared = 16384, ComboStep = 32768,
     }
@@ -361,12 +361,14 @@ public sealed class Connate : IArcadeGame
             double ox = Math.Sin(PlayerAngle) * ConnateTuning.LaunchRadius;
             double oy = -Math.Cos(PlayerAngle) * ConnateTuning.LaunchRadius;
             double ix = -Math.Sin(PlayerAngle), iy = Math.Cos(PlayerAngle);
-            double heldRadius = HeldIsBomb ? ConnateTuning.BombRadius : ConnateTuning.RadiusForRank(HeldRank);
+            // The guide ends where the shot will: a numbered piece meets the heap at collider radii, a bomb at
+            // the drawn ones (it is swept against the visible body, StepBombs).
+            double heldRadius = HeldIsBomb ? ConnateTuning.BombRadius : ConnateTuning.ColliderRadiusForRank(HeldRank);
             double bestTravel = ConnateTuning.LaunchRadius;
             foreach (ConnateBody body in _bodies)
             {
                 if (HeldIsBomb && body.IsGarbage) continue;
-                double contactRadius = heldRadius + body.Radius;
+                double contactRadius = heldRadius + (HeldIsBomb ? body.Radius : body.ColliderRadius);
                 double rx = body.X - ox, ry = body.Y - oy;
                 double along = rx * ix + ry * iy;
                 if (along < 0 || along > bestTravel + contactRadius) continue;
@@ -419,8 +421,7 @@ public sealed class Connate : IArcadeGame
     }
 
     /// <summary>The △ card. It teaches the rules nothing on the board states: the tap and the slam, which
-    /// pieces merge, what earns and loads a bomb, garbage, the shot clock and the stages, the boss block, and
-    /// the boundary.
+    /// pieces merge, what earns and loads a bomb, garbage, and the boundary.
     ///
     /// <para>Copy is author-editable — see docs/ARCADE.md. ⚠ Keep the bullets short: they wrap, and a wrap
     /// pushes every row below it down. <c>TestHarness.exe arcade</c> fails if the card stops fitting.</para></summary>
@@ -431,7 +432,6 @@ public sealed class Connate : IArcadeGame
         new(Loc.T(UiText.Arcade.ConnateHow3), "families"),
         new(Loc.T(UiText.Arcade.ConnateHow4), "bomb"),
         new(Loc.T(UiText.Arcade.ConnateHow5), "garbage"),
-        new(Loc.T(UiText.Arcade.ConnateHow6), "clock"),
         new(Loc.T(UiText.Arcade.ConnateHow7), "limit"),
     ]);
 
@@ -918,12 +918,15 @@ public sealed class Connate : IArcadeGame
         double outwardX = Math.Sin(PlayerAngle), outwardY = -Math.Cos(PlayerAngle);
         double x = outwardX * ConnateTuning.LaunchRadius;
         double y = outwardY * ConnateTuning.LaunchRadius;
-        double heldRadius = HeldIsBomb ? ConnateTuning.BombRadius : ConnateTuning.RadiusForRank(HeldRank);
+        double heldRadius = HeldIsBomb ? ConnateTuning.BombRadius : ConnateTuning.ColliderRadiusForRank(HeldRank);
         // Never rely on collision correction to repair a bad spawn: large high-rank or garbage bodies can block
         // the muzzle, in which case both manual and automatic fire wait until the lane physically clears.
+        // Collider radii for a numbered shot, so a shot is not refused while only the strokes overlap; a bomb
+        // keeps the drawn radii it is swept with.
         if (_bodies.Any(body =>
         {
-            double clearance = (heldRadius + body.Radius) * ConnateTuning.MuzzleClearance;
+            double clearance = (heldRadius + (HeldIsBomb ? body.Radius : body.ColliderRadius))
+                * ConnateTuning.MuzzleClearance;
             return DistanceSquared(body.X, body.Y, x, y) < clearance * clearance;
         }))
         {
@@ -1090,7 +1093,6 @@ public sealed class Connate : IArcadeGame
             _lastMergeShotId = merge.ShotId;
             _chainTimeLeft = ConnateTuning.ChainContinuationSeconds;
             _mergeFlashes.Add(new ConnateMergeFlash(merge.X, merge.Y, merge.ResultRank, _chainDepth, 0));
-            _cues |= _chainDepth > 1 ? Cue.Chain : Cue.Merge;
 
             // Combos are counted between shots: every merge since the last successful fire, the first
             // recorded but not scoring, so three merges off one shot read "COMBO ×2" and pay 2.
@@ -1098,6 +1100,11 @@ public sealed class Connate : IArcadeGame
             // ChainContinuationSeconds window, so a slow cascade silently restarts and stops paying.
             // _chainDepth drives the merge flash intensity only, which wants the "how fast" reading.
             CountTowardCombo(merge.X, merge.Y);
+
+            // Sound reads the combo, never _chainDepth: every merge raises the blip, and the layered cue joins
+            // from the second merge since the shot, so it resets only when the player fires.
+            _cues |= Cue.Merge;
+            if (_mergesSinceShot > 1) _cues |= Cue.ComboLayer;
         }
 
         // A cleared garbage block counts like a merge, through the same counter.
@@ -1216,27 +1223,7 @@ public sealed class Connate : IArcadeGame
                 _bombProjectiles.RemoveAt(i);
                 _cues |= Cue.BombExplode;
             }
-            // No tile to hit: the bomb still detonates when it reaches the centre, paying a flat sum, so a bomb
-            // spent on an empty field is a reward rather than a dud. Garbage is not a target (above) but is
-            // still swept, so a garbage-only board counts as empty here.
-            else if (!_bodies.Any(body => !body.IsGarbage)
-                     && SegmentContact(oldX, oldY, bomb.X, bomb.Y, 0, 0, bomb.Radius) < double.PositiveInfinity)
-            {
-                long value = ConnateTuning.BombEmptyFieldValue;
-                int rank = NearestRankForValue(value);
-                ExplodedValue = ConnateRules.SaturatingAdd(ExplodedValue, value);
-                SpawnScoreMotes(bomb.Id, rank, value, 0, 0);
-                for (int g = _bodies.Count - 1; g >= 0; g--)
-                {
-                    ConnateBody garbage = _bodies[g];
-                    garbageEvents.Add(new ConnateGarbageClear(garbage.X, garbage.Y, garbage.Radius,
-                                                              garbage.Id, 0, garbage.Rotation));
-                    _bodies.RemoveAt(g);
-                }
-                _bombExplosions.Add(new ConnateBombExplosion(0, 0, rank, 0));
-                _bombProjectiles.RemoveAt(i);
-                _cues |= Cue.BombExplode;
-            }
+            // No numbered tile to hit: the bomb flies on and expires, on a garbage-only board as on any other.
             else if (bomb.Age >= ConnateTuning.BombLifetimeSeconds
                      || Math.Sqrt(bomb.X * bomb.X + bomb.Y * bomb.Y) > ConnateTuning.OuterHardLimitRadius + 0.1)
                 _bombProjectiles.RemoveAt(i);
@@ -1302,20 +1289,6 @@ public sealed class Connate : IArcadeGame
         }
     }
 
-    /// <summary>The ladder rank whose value is closest to <paramref name="value"/>, for sizing blast art off a
-    /// payout that is not itself a tile.</summary>
-    private static int NearestRankForValue(long value)
-    {
-        int best = 0;
-        for (int rank = 0; rank <= ConnateRules.MaximumRank; rank++)
-        {
-            if (Math.Abs(ConnateRules.ValueForRank(rank) - value) < Math.Abs(ConnateRules.ValueForRank(best) - value))
-                best = rank;
-            if (ConnateRules.ValueForRank(rank) > value) break;
-        }
-        return best;
-    }
-
     private void StepSizeLimit(double dt)
     {
         // Bomb immunity suppresses both fuse accumulation and the emergency body-cap loss. It runs until the
@@ -1347,7 +1320,9 @@ public sealed class Connate : IArcadeGame
             {
                 double grace = Math.Max(0.1, ConnateTuning.BarelyOversizeGraceSeconds);
                 double multiplier = 1 + excess / Math.Max(0.01, ConnateTuning.SoftExcessBand);
-                SizeFuse = Math.Min(1, SizeFuse + dt / grace * multiplier);
+                // The rise quickens with the fuse's own level; recovery below does not.
+                double pressure = 1 + SizeFuse * ConnateTuning.FuseRiseBoost;
+                SizeFuse = Math.Min(1, SizeFuse + dt / grace * multiplier * pressure);
             }
         }
         else SizeFuse = Math.Max(0, SizeFuse - ConnateTuning.FuseRecoveryPerSec * dt);
@@ -1620,7 +1595,9 @@ public sealed class Connate : IArcadeGame
                                    double Rot = 0, double Spin = 0,
                                    // A body in flight on a charged launch; false is every body a v7/v8 file holds.
                                    bool Charged = false);
-    private sealed record PendingSnap(long A, long B, int ResultRank, double Age, double Duration);
+    private sealed record PendingSnap(long A, long B, int ResultRank, double Age, double Duration,
+                                      // Garbage that touched the pair during the gather; null in every v7/v8 file.
+                                      long[]? Touched = null);
     private sealed record BombSnap(long Id, double X, double Y, double VX, double VY, double Age);
     private sealed record Snap(int V, int Phase, double PhaseTime, double PlayerAngle, int HeldRank,
         double Fuse, long FinalSum, long ExplodedValue, int High, double Cooldown, double ChainTime, int ChainDepth,
@@ -1657,7 +1634,7 @@ public sealed class Connate : IArcadeGame
 
     /// <summary>Versions this build accepts, newest first. v8 and v7 stay readable because every board they
     /// can hold is a legal v9 board: 7 → 8 only dropped the bomb schedule's dead Turns/NextBomb fields, and
-    /// 8 → 9 appended three defaulted fields (<c>NewBestShown</c>, a body's <c>Charged</c> flag, false on every
+    /// 8 → 9 appended four defaulted fields (a bond's <c>Touched</c> garbage ids, empty in every older file, <c>NewBestShown</c>, a body's <c>Charged</c> flag, false on every
     /// body an older file holds, and the boss-block <c>Boss</c> record, null in every older file) while widening what the bomb rail may hold
     /// (a pending bomb under a numbered tile) — a v8 board never has one, and still reads as itself. The stage
     /// count, thresholds and deadlines are derived from the banked total, so nothing in them is stored.
@@ -1677,7 +1654,8 @@ public sealed class Connate : IArcadeGame
             body.IsGarbage, body.EnteringPlayfield, body.GarbageRadius, body.Hue,
             body.Rotation, body.SpinRate, body.Charged))],
         [.. _pendingMerges.Select(bond => new PendingSnap(
-            bond.AId, bond.BId, bond.ResultRank, bond.Age, bond.Duration))],
+            bond.AId, bond.BId, bond.ResultRank, bond.Age, bond.Duration,
+            bond.TouchedGarbageIds.Count == 0 ? null : [.. bond.TouchedGarbageIds]))],
         [.. _bombProjectiles.Select(bomb => new BombSnap(
             bomb.Id, bomb.X, bomb.Y, bomb.VelocityX, bomb.VelocityY, bomb.Age))],
         _shotClockElapsed, _garbageTimeLeft, HeldHue,
@@ -1780,6 +1758,11 @@ public sealed class Connate : IArcadeGame
                     Age = ClampFinite(bond.Age, 0, duration), Duration = duration,
                 };
                 if (!ConnatePhysics.IsMergeValid(candidate, a, b)) continue;
+                // Hostile ids: only bodies that exist and are garbage survive; the rest are dropped.
+                if (bond.Touched is { Length: <= 4096 } touched)
+                    foreach (long id in touched)
+                        if (restoredById.TryGetValue(id, out ConnateBody? garbage) && garbage.IsGarbage)
+                            candidate.NoteTouchedGarbage(id);
                 reserved.Add(bond.A); reserved.Add(bond.B);
                 restoredPending.Add(candidate);
             }

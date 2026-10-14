@@ -28,6 +28,7 @@ public partial class App
         (["--remove-recovery-task"],                   CliRemoveRecoveryTask),
         (["--hidhide-whitelist"],                      CliHidHideWhitelist),
         (["--install-drivers"],                        CliInstallDrivers),
+        (["--uninstall-privileged"],                   CliUninstallPrivileged),
         (["--uninstall", "--uninstall-run"],           CliUninstall),
         (["--uninstall-cleanup", "--uninstall-cleanup-run"], CliUninstallCleanup),
     ];
@@ -453,6 +454,48 @@ public partial class App
         return true;
     }
 
+    // Elevated one-shot for the uninstall's privileged half: the sign-in task and, with --drivers, both driver
+    // uninstallers, so a driver removal costs the user ONE UAC prompt. The uninstallers it starts inherit its
+    // elevation and never prompt. Started by RunPrivilegedUninstall, which unpacks the exit code
+    // (PackPrivilegedResult); any code without the result flag means it did not finish.
+    private bool CliUninstallPrivileged(string[] args, int at)
+    {
+        _earlyExit = true;
+        ShutdownMode = ShutdownMode.OnExplicitShutdown;
+        // The invoking process may hold radiata-trace-elevated.log — trace to a sibling file.
+        try
+        {
+            System.IO.Directory.CreateDirectory(AppPaths.AppDataDir);
+            Trace.Listeners.Add(new TimestampTraceListener(
+                System.IO.Path.Combine(AppPaths.AppDataDir, "radiata-trace-drivers.log"), shortLived: true));
+            Trace.AutoFlush = true;
+        }
+        catch { /* diagnostics must never block the uninstall */ }
+
+        int code = 1;
+        try
+        {
+            bool task = RecoveryTask.Remove(allowElevation: false, ownerSid: RecoveryTask.OwnerSid);
+            var hh = DriverSetup.UninstallOutcome.NotInstalled;
+            var vg = DriverSetup.UninstallOutcome.NotInstalled;
+            if (Array.IndexOf(args, "--drivers") >= 0)
+            {
+                // The driver uninstallers fail with an access/in-use error while the pad devnode or the HidHide
+                // filter is still attached, which lingers briefly after the tray app is killed.
+                int pi = Array.IndexOf(args, "--parent-pid");
+                int parent = pi >= 0 && pi + 1 < args.Length && int.TryParse(args[pi + 1], out var n) ? n : 0;
+                WaitForControllerDevicesToRelease(ignorePid: parent);
+                hh = DriverSetup.UninstallHidHide();
+                vg = DriverSetup.UninstallViGEmBus();
+            }
+            Trace.WriteLine($"[Uninstall] privileged half: task={(task ? "removed" : "FAILED")} hidhide={hh} vigembus={vg}");
+            code = PackPrivilegedResult(task, hh, vg);
+        }
+        catch (Exception ex) { Trace.WriteLine($"[Uninstall] privileged half failed: {ex.Message}"); }
+        Shutdown(code);
+        return true;
+    }
+
     // Elevated one-shot: add Radiata.exe to HidHide's allow-list, then exit. Runs BEFORE the
     // single-instance check (this is a short-lived elevated sibling of the running app spawned by
     // WhitelistSelf, not a duplicate tray app). The caller releases the exclusive device first.
@@ -581,8 +624,9 @@ public partial class App
     }
 
     // Portable uninstall: show opt-ins before modifying Windows state or scheduling file removal.
-    // Keep per-user cleanup in the invoking account. Driver uninstallers and task removal
-    // elevate only their own privileged operation; there is no whole-app elevated cleanup child.
+    // Keep per-user cleanup in the invoking account. Only the privileged half (task removal and the
+    // driver uninstallers) runs elevated, in one --uninstall-privileged child; there is no whole-app
+    // elevated cleanup child.
     private bool CliUninstall(string[] args, int at)
     {
         _earlyExit = true;
@@ -617,9 +661,11 @@ public partial class App
         int code = 1;
         try
         {
-            var (ok, message) = RunCleanupCore(choice.Drivers, choice.AppData);
-            code = ok ? 0 : 5;
-            if (!silent && (!ok || choice.Drivers))
+            var (ok, message, notable) = RunCleanupCore(choice.Drivers, choice.AppData);
+            code = ok ? 0 : _uninstallDeclined ? CleanupDeclinedExitCode : 5;
+            // A clean outcome is told by Inno's closing message (UninstalledAll / UninstalledMost name the
+            // restart that finishes a driver removal); this dialog is only for what needs the user's attention.
+            if (!silent && (!ok || notable))
                 System.Windows.MessageBox.Show((ok ? Loc.T(UiText.Dialogs.CleanupFinished) : "") + message,
                     Loc.T(UiText.Dialogs.UninstallCaption), MessageBoxButton.OK,
                     ok ? MessageBoxImage.Information : MessageBoxImage.Warning);

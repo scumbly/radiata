@@ -66,6 +66,9 @@ internal static class DriverSetup
     /// <summary>WiX Burn quiet-with-progress install, reboots deferred.</summary>
     private const string BurnArgs = "/passive /norestart";
 
+    /// <summary>Opens every driver-engine log line that stopped setup; the driver window shows such lines bold.</summary>
+    public const string StopPrefix = "Driver setup stopped:";
+
     /// <summary>Run a bundled installer elevated and wait for it. True on success (exit 0 or 3010). False if
     /// the file's missing, the user declined the UAC prompt, or the installer reported an error.
     /// <para>Must AWAIT the exit, never block on WaitForExit: the caller is the UI thread, and stalling the

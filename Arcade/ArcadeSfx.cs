@@ -118,6 +118,15 @@ internal static class ArcadeSfx
         Play(second, ladderSecond, pitchSecond);
     }
 
+    /// <summary>One bank, nudged late: the single-bank half of <see cref="Layer"/>, for a tail whose first half
+    /// is a different cue's own call. Same async-void containment; <see cref="Sfx.Enabled"/> is re-checked in
+    /// <see cref="Play"/>.</summary>
+    private static async void PlayAfter(Bank b, int delayMs, int ladder = 0)
+    {
+        try { await Task.Delay(delayMs); } catch { return; }
+        Play(b, ladder);
+    }
+
     /// <summary>The arcade is opening: wake the device now so the first tick isn't the one that pays for it
     /// (the wheel does the same in <see cref="Sfx.WheelOpened"/>), and decode the chrome off the UI thread.</summary>
     public static void Opened()
@@ -217,23 +226,20 @@ internal static class ArcadeSfx
     private static readonly Bank KbCampaign     = B(Family.Kabloom, "campaign",      0.80f, 0,    "kabloom-campaign");
     private static readonly Bank KbNewBest      = B(Family.Kabloom, "newbest",       0.70f, 0,    "internode-newbest");
 
-    // Connate: glassy, metallic, a coin till.
+    // Connate: glassy, metallic, a coin till. Every Connate stem is the Playdate edition's mono sample for the cue,
+    // ingested to the bus format with that edition's relative balance (docs/SOUND.md). Kabloom keeps its own level-up.
     private static readonly Bank CnFire           = B(Family.Connate, "fire",            0.40f, 0.03, "connate-fire");
     private static readonly Bank CnMerge          = B(Family.Connate, "merge",           0.55f, 0,    "connate-merge");
-    private static readonly Bank CnChainLayer     = B(Family.Connate, "chain-layer",     0.45f, 0,    "connate-chain-layer");
+    private static readonly Bank CnComboLayer     = B(Family.Connate, "combo-layer",     0.45f, 0,    "connate-chain-layer");
     private static readonly Bank CnCollect        = B(Family.Connate, "collect",         0.40f, 0.04, "connate-collect");
     private static readonly Bank CnCombo          = B(Family.Connate, "combo",           0.45f, 0.02, "connate-combo");
-    // ⚠ Deliberate cross-game reuse: the earned-bomb cue plays Kabloom's level-up take; don't swap in a
-    // Connate-only sample. Both takes are normalised to the default peak, so this bank's 0.65 mix
-    // position holds; Kabloom keeps its own use of the sample.
-    private static readonly Bank CnBombEarned     = B(Family.Connate, "bomb-earned",     0.65f, 0,    "kabloom-levelup");
+    private static readonly Bank CnBombEarned     = B(Family.Connate, "bomb-earned",     0.65f, 0,    "connate-bomb-earned");
     private static readonly Bank CnBombExplode    = B(Family.Connate, "bomb-explode",    0.75f, 0.03, "connate-bomb-explode");
     private static readonly Bank CnBombGlass      = B(Family.Connate, "bomb-glass",      0.55f, 0.03, "connate-bomb-glass");
     private static readonly Bank CnBoardClear     = B(Family.Connate, "boardclear",      0.80f, 0,    "connate-boardclear");
     private static readonly Bank CnBoardClearPour = B(Family.Connate, "boardclear-pour", 0.45f, 0,    "connate-boardclear-pour");
-    // ⚠ One new-best voice across the arcade: Connate and Petalpop play Internode's take. Each keeps
-    // its own family trim; the sample is what is shared.
-    private static readonly Bank CnNewBest        = B(Family.Connate, "newbest",         0.70f, 0,    "internode-newbest");
+    // Connate's new-best is the Playdate edition's mono copy of the arcade's new-best voice (Internode's take).
+    private static readonly Bank CnNewBest        = B(Family.Connate, "newbest",         0.70f, 0,    "connate-newbest");
     private static readonly Bank CnWarning        = B(Family.Connate, "warning",         0.45f, 0,    "connate-warning");
     private static readonly Bank CnRecover        = B(Family.Connate, "recover",         0.55f, 0,    "connate-recover");
     private static readonly Bank CnGuarded        = B(Family.Connate, "guarded",         0.40f, 0,    "connate-guarded");
@@ -304,7 +310,7 @@ internal static class ArcadeSfx
         GnFire, GnTick, GnGood, GnDenied, GnKill, GnZap, GnHurt, GnClear, GnGameOver,
         KbReveal, KbBloom, KbBloomLayer, KbFlag, KbGuarded, KbDiamond, KbMineBuzz, KbMineThud, KbBeeDeparts,
         KbCleared, KbLevelUp, KbGrowth, KbContinue, KbCampaign, KbNewBest,
-        CnFire, CnMerge, CnChainLayer, CnCollect, CnCombo, CnBombEarned, CnBombExplode, CnBombGlass, CnBoardClear,
+        CnFire, CnMerge, CnComboLayer, CnCollect, CnCombo, CnBombEarned, CnBombExplode, CnBombGlass, CnBoardClear,
         CnBoardClearPour, CnNewBest, CnWarning, CnRecover, CnGuarded, CnGarbageArrive, CnGarbageCleared, CnGameOver,
         CnGameOverTail,
         PpPaddle, PpPop, PpChip, PpSplit, PpSplitSparkle, PpSmash, PpSmashArm, PpServe, PpLost,
@@ -406,13 +412,15 @@ internal static class ArcadeSfx
 
         public static void Fire() => Play(CnFire);
 
-        /// <summary>A merge: flat, not pitched by rank — the restored original is one fixed blip.</summary>
+        /// <summary>A merge: flat, not pitched by rank — the restored original is one fixed blip, on every merge.</summary>
         public static void Merge() => Play(CnMerge, pitch: MergePitch);
-        /// <summary>A cascade: the merge blip plus a metal tail that climbs with the chain depth.</summary>
-        public static void Chain(int depth)
+        /// <summary>The metal tail under a merge from the second since the shot: it starts 50 ms after the blip
+        /// and climbs one rung per merge past the first, so <paramref name="combo"/> (merges and garbage clears
+        /// since the shot) names the rung.</summary>
+        public static void ComboLayer(int combo)
         {
-            if (Throttled(CnChainLayer, ArcadeSfxTuning.ChainMinIntervalMs)) return;
-            Layer(CnMerge, CnChainLayer, 50, ladderSecond: depth - 1, pitchFirst: MergePitch);
+            if (Throttled(CnComboLayer, ArcadeSfxTuning.ComboLayerMinIntervalMs)) return;
+            PlayAfter(CnComboLayer, 50, combo - 1);
         }
         public static void Collect()          => Play(CnCollect);
         public static void ComboStep(int n)   => Play(CnCombo, n);

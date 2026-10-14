@@ -763,35 +763,29 @@ internal sealed class PetalPopRenderer : IArcadeRenderer
 
     private static void DrawIntro(DrawingContext dc, Point c, double field, double ppd)
     {
-        dc.DrawEllipse(PetalPopPalette.Scrim, null, c, field, field);
-        ArcadeChrome.DrawCentered(dc, "PETALPOP", ArcadeChrome.Ui(Math.Max(16, field * 0.12)), PetalPopPalette.Ink,
-            c.X, c.Y - field * 0.46, ppd, field * 1.5);
+        dc.DrawEllipse(ArcadePalette.CardScrim, null, c, field, field);
+        ArcadeChrome.DrawPosterLine(dc, "PETALPOP", ArcadeChrome.Ui(Math.Max(16, field * 0.12)), PetalPopPalette.TitleFace,
+            c.X, c.Y - field * 0.46, ppd, field * 1.15, rule: Colors.White);
         ArcadeChrome.DrawCentered(dc, $"{ControllerButtons.Text(PadButton.Triangle)}  {Loc.T(UiText.Arcade.HowToPlay)}",
             ArcadeChrome.Ui(Math.Max(9, field * 0.052)), PetalPopPalette.Accent, c.X, c.Y - field * 0.08, ppd, field * 1.6);
         ArcadeChrome.DrawCentered(dc, $"{ControllerButtons.Text(PadButton.Cross)}  {Loc.T(UiText.Arcade.Begin)}",
-            ArcadeChrome.Ui(Math.Max(9, field * 0.048)), PetalPopPalette.InkDim, c.X, c.Y + field * 0.16, ppd, field * 1.5);
+            ArcadeChrome.Ui(Math.Max(9, field * 0.048)), PetalPopPalette.BeginInk, c.X, c.Y + field * 0.16, ppd, field * 1.5);
     }
 
     private static void DrawGameOver(DrawingContext dc, Point c, double field, PetalPop g, double ppd)
     {
-        dc.DrawEllipse(PetalPopPalette.Scrim, null, c, field, field);
-        ArcadeChrome.DrawCentered(dc, Loc.T(UiText.Arcade.GameOver), ArcadeChrome.Ui(Math.Max(14, field * 0.095)), PetalPopPalette.Danger,
-            c.X, c.Y - field * 0.50, ppd, field * 1.5);
+        dc.DrawEllipse(ArcadePalette.CardScrim, null, c, field, field);
+        ArcadeChrome.DrawPosterLine(dc, Loc.T(UiText.Arcade.GameOver), ArcadeChrome.Ui(Math.Max(14, field * 0.095)), PetalPopPalette.Danger,
+            c.X, c.Y - field * 0.50, ppd, field * 1.15);
         DrawEndStack(dc, c, field, g, ppd);
     }
 
     /// <summary>The run's end, the good way: 8-8 cleared.</summary>
     private static void DrawWin(DrawingContext dc, Point c, double field, PetalPop g, double ppd)
     {
-        dc.DrawEllipse(PetalPopPalette.Scrim, null, c, field, field);
-        // The core, whole and enormous, behind the word — the thing every level was peeled toward.
-        double pulse = 0.5 + 0.5 * Math.Sin(g.PhaseTime * 2.2);
-        dc.DrawEllipse(PetalPopPalette.Halo(PetalPopPalette.Core, 0.5 + 0.3 * pulse), null, c, field * 0.9, field * 0.9);
-        var core = Disc(c, field * g.Flower.CoreRadius * (3.2 + 0.15 * pulse));
-        dc.DrawGeometry(PetalPopPalette.Solid(PetalPopPalette.Core, 0.55), null, core);
-        dc.DrawGeometry(null, PetalPopPalette.Stroke(PetalPopPalette.CelInk, PetalPopPalette.CelWidth, 0.55), core);
-        ArcadeChrome.DrawCentered(dc, Loc.T(UiText.Arcade.YouWin), ArcadeChrome.Ui(Math.Max(16, field * 0.12)), PetalPopPalette.Ink,
-            c.X, c.Y - field * 0.54, ppd, field * 1.5);
+        dc.DrawEllipse(ArcadePalette.CardScrim, null, c, field, field);
+        ArcadeChrome.DrawPosterLine(dc, Loc.T(UiText.Arcade.YouWin), ArcadeChrome.Ui(Math.Max(14, field * 0.095)), PetalPopPalette.Ink,
+            c.X, c.Y - field * 0.54, ppd, field * 1.15);
         DrawEndStack(dc, c, field, g, ppd);
     }
 
@@ -807,7 +801,7 @@ internal sealed class PetalPopRenderer : IArcadeRenderer
         ArcadeChrome.DrawCenteredRow(dc,
             [$"{ControllerButtons.Text(PadButton.Cross)}  {Loc.T(UiText.Arcade.Again)}",
              $"{ControllerButtons.Text(PadButton.Circle)}  {Loc.T(UiText.Arcade.ExitGame)}"],
-            ArcadeChrome.Ui(Math.Max(9, field * 0.047)), PetalPopPalette.InkDim, c.X, c.Y + field * 0.40, ppd);
+            ArcadeChrome.Ui(Math.Max(9, field * 0.047)), PetalPopPalette.BeginInk, c.X, c.Y + field * 0.40, ppd);
     }
 
     // ── How-to illustrations ──────────────────────────────────────────────────

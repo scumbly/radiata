@@ -115,10 +115,15 @@ public static class RecoveryTask
         finally { Release(registered); Release(folder); Release(service); }
     }
 
+    /// <summary>True when the last <see cref="Remove"/> failed because the user declined its UAC prompt
+    /// (ERROR_CANCELLED), so the caller can say so instead of reporting a generic failure.</summary>
+    public static bool LastElevationDeclined { get; private set; }
+
     /// <summary>Remove only matching tasks. A narrow elevated helper can remove an admin-created task;
     /// it receives the originating SID and does no registry, driver, process, or file cleanup.</summary>
     public static bool Remove(bool allowElevation = true, string? ownerSid = null)
     {
+        LastElevationDeclined = false;
         object? service = null, folder = null;
         string sid = ownerSid ?? CurrentSid;
         string exe = Environment.ProcessPath ?? "";
@@ -151,7 +156,12 @@ public static class RecoveryTask
                 process.WaitForExit();
                 return process.ExitCode == 0;
             }
-            catch (Exception error) { Trace.WriteLine($"[Recovery] task removal elevation failed: {error.Message}"); return false; }
+            catch (Exception error)
+            {
+                LastElevationDeclined = error is System.ComponentModel.Win32Exception { NativeErrorCode: 1223 };
+                Trace.WriteLine($"[Recovery] task removal elevation failed: {error.Message}");
+                return false;
+            }
         }
         catch (Exception ex) { Trace.WriteLine($"[Recovery] task removal failed: {ex.Message}"); return false; }
         finally { Release(folder); Release(service); }

@@ -4958,7 +4958,7 @@ public partial class App : Application
                 ? Loc.T(UiText.Tray.PassthruEndingItem)
                 : Loc.T(UiText.Tray.PassthruMode);
         };
-        // The controller/driver tools (Controller Setup, Run First-Run Setup, Install/Repair Drivers,
+        // The controller/driver tools (Run First-Run Setup, Install/Repair Drivers,
         // HID Diagnostics, Recover Controller) live in Settings ▸ Advanced ▸ Controller & drivers —
         // the tray stays a short everyday menu.
         menu.Items.Add(new ToolStripSeparator());
@@ -5224,8 +5224,8 @@ public partial class App : Application
         {
             _settingsWindow = new SettingsWindow(_config, slice => _executor.Execute(slice), DetectedControllerKind, RunOnboarding)
             {
-                // Controller/driver tools: Install/Recover are on
-                // the Advanced tab; Controller Setup + HID Diagnostics surface in Developer Settings.
+                // Controller/driver tools on the Advanced tab. ControllerSetupHook (the HidWizardWindow) is
+                // kept wired but has no menu entry: nothing in the UI raises it.
                 ControllerSetupHook   = OpenWizard,
                 InstallDriversHook    = InstallDriversInteractive,
                 HidDiagnosticsHook    = OpenDiagnostics,
@@ -5564,10 +5564,15 @@ public partial class App : Application
         }
 
         // Resolve conflicts before probing or mutating the driver stack.
+        if (DriverStatus.ViGEmBusRemovalPending())
+        {
+            log.Add($"{DriverSetup.StopPrefix} a previous ViGEmBus removal is waiting for a restart. Restart Windows, then run driver setup again.");
+            return log;
+        }
         var foreignBus = DriverStatus.ForeignViGEmBusName();
         if (foreignBus is not null)
         {
-            log.Add($"Driver setup stopped: {foreignBus}'s ViGEmBus is installed. Resolve that driver conflict before retrying.");
+            log.Add($"{DriverSetup.StopPrefix} {foreignBus}'s ViGEmBus is installed. Resolve that driver conflict before retrying.");
             return log;
         }
         if (DriverStatus.HidGuardianInstalled())
@@ -6691,6 +6696,19 @@ public partial class App : Application
         UpdateService.ExitForUpdate = ExitApp;   // the NORMAL shutdown path: TearDown (cloak lift) + Shutdown
         UpdateService.Start();
 
+        // The silent installer shows no finish page; this notice is the only sign the update landed. Keyed
+        // on --updated alone (the in-app update's relaunch), so a manual reinstall stays quiet.
+        if (Array.IndexOf(Environment.GetCommandLineArgs(), "--updated") >= 0)
+        {
+            var v = UpdateService.CurrentVersion;
+            var full = string.Join('.', v.Split('.').Take(3));
+            Trace.WriteLine($"[Update] relaunched after update — running {v}");
+            RunWhenQuiet(TimeSpan.FromSeconds(5), () => NotifyUser(
+                Loc.F(UiText.Toasts.UpdatedTitle, UpdateFeed.ShortVersion(v)),
+                Loc.F(UiText.Toasts.UpdatedBody, full),
+                null));
+        }
+
         // Crash-time driver one-liner: already-held fields only — never probe hardware in a crash handler.
         CrashReporter.DriverStateProvider = () =>
             $"isolated={_isolated} passthru={SafeModeActive} padPresent={_controllerPresentForPad} " +
@@ -6806,7 +6824,7 @@ public partial class App : Application
     /// installer-managed copy's files belong to the Inno uninstaller (--uninstall-cleanup).</summary>
     private bool RunUninstall(bool drivers, bool appData)
     {
-        var (cleanupOk, driversMsg) = RunCleanupCore(drivers, appData);
+        var (cleanupOk, driversMsg, _) = RunCleanupCore(drivers, appData);
         if (!cleanupOk)
         {
             System.Windows.MessageBox.Show(driversMsg, Loc.T(UiText.Dialogs.UninstallCaption), MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -6839,9 +6857,12 @@ public partial class App : Application
     /// touches application files — file deletion stays with each caller. Best-effort throughout.
     /// Returns whether the driver removal succeeded (true when not requested) plus the user-facing
     /// sentence describing what actually happened to the drivers.</summary>
-    private (bool DriversOk, string DriversMsg) RunCleanupCore(bool drivers, bool appData)
+    /// <returns><c>Notable</c>: the outcome says something the user would not assume from a clean removal
+    /// (a driver left for another program or another running copy), so the installed path's dialog must show
+    /// even on success; otherwise Inno's closing message covers it.</returns>
+    private (bool DriversOk, string DriversMsg, bool Notable) RunCleanupCore(bool drivers, bool appData)
     {
-        if (!KillOtherRadiata()) return (false, Loc.T(UiText.Settings.RecoveryRequired));
+        if (!KillOtherRadiata()) return (false, Loc.T(UiText.Settings.RecoveryRequired), true);
 
         // A Radiata from ANOTHER folder survives that by design (KillOtherRadiata matches the exe path, so a
         // dev build or a kept ZIP copy beside an install is left alone) — and it owns a LIVE cloak it
@@ -6863,16 +6884,28 @@ public partial class App : Application
             if (otherCopy is null)
             {
                 cloakRecovered = hh.UnhideForUninstall();
-                if (!cloakRecovered) return (false, Loc.T(UiText.Settings.RecoveryRequired));
+                if (!cloakRecovered) return (false, Loc.T(UiText.Settings.RecoveryRequired), true);
             }
             // Per-path, so it never touches the other copy's own entry.
             hh.DewhitelistApplication(Environment.ProcessPath ?? "");
             hh.Release();
         }
-        catch (Exception ex) { Trace.WriteLine($"[Uninstall] HidHide cleanup: {ex.Message}"); return (false, Loc.T(UiText.Settings.RecoveryRequired)); }
+        catch (Exception ex) { Trace.WriteLine($"[Uninstall] HidHide cleanup: {ex.Message}"); return (false, Loc.T(UiText.Settings.RecoveryRequired), true); }
 
         try { StartupManager.SetEnabled(false); } catch (Exception ex) { Trace.WriteLine($"[Uninstall] run-key: {ex.Message}"); }
-        if (!RecoveryTask.Remove()) return (false, Loc.T(UiText.Settings.RecoveryRequired));
+        // The task (registered elevated) and the driver uninstallers are the privileged steps. Without the
+        // drivers, RecoveryTask.Remove elevates for the task alone; with them, one elevated child does all
+        // three so the user approves once. Declining that prompt fails the cleanup, as declining the task's did.
+        bool wantDrivers = drivers && otherCopy is null;
+        bool taskRemoved = RecoveryTask.Remove(allowElevation: !wantDrivers);
+        bool declined = !wantDrivers && RecoveryTask.LastElevationDeclined;
+        var privileged = wantDrivers ? RunPrivilegedUninstall(drivers: true, out declined) : null;
+        if (privileged is { TaskRemoved: true }) taskRemoved = true;
+        if (!taskRemoved)
+        {
+            _uninstallDeclined = declined;
+            return (false, Loc.T(declined ? UiText.Dialogs.UninstallDeclined : UiText.Settings.RecoveryRequired), true);
+        }
         // The Arcade helper's stage-copies live OUTSIDE the app folder (C:\Radiata-ArcadeHost-<hash>),
         // so neither the manifest self-delete nor the Inno uninstaller ever sees them.
         ScriptSessionCoordinator.DeleteOwnedStagedCopy();
@@ -6880,6 +6913,7 @@ public partial class App : Application
         // driversMsg is appended to the completion dialog: describes what ACTUALLY happened to the drivers.
         string driversMsg;
         bool driversOk = true;
+        bool notable = otherCopy is not null;
         if (otherCopy is not null)
         {
             // Both drivers are machine-wide and that copy is using them right now: HidHide's filter is what
@@ -6889,16 +6923,13 @@ public partial class App : Application
         }
         else if (drivers)
         {
-            // The driver uninstallers (WiX bundles) fail with an access/in-use error if the pad devnode or
-            // the HidHide filter is still attached — which lingers briefly after the tray app is killed, and
-            // can persist until reboot on an install that never re-enumerated (see the HidHide gotcha #3).
-            // Wait for the pad/cloak to actually release before uninstalling, and REPORT the real uninstall
-            // result rather than discarding it.
-            WaitForControllerDevicesToRelease();
-            var hh = DriverSetup.UninstallHidHide();    // control device freed above (+ the tray app was killed)
-            var vg = DriverSetup.UninstallViGEmBus();
+            // The elevated child waited for the pad/cloak to release, then ran both uninstallers; REPORT the
+            // real outcome rather than discarding it. A child that never finished reports both as Failed.
+            var hh = privileged?.HidHide ?? DriverSetup.UninstallOutcome.Failed;
+            var vg = privileged?.ViGEmBus ?? DriverSetup.UninstallOutcome.Failed;
             driversOk = DriverSetup.NeedsNoUserAction(hh) && DriverSetup.NeedsNoUserAction(vg);
-            driversMsg = "\n\n" + DriverOutcomeLine("HidHide", hh) + "\n\n" + DriverOutcomeLine("ViGEmBus", vg);
+            notable = hh == DriverSetup.UninstallOutcome.NoUninstaller || vg == DriverSetup.UninstallOutcome.NoUninstaller;
+            driversMsg = "\n\n" + DriverOutcomesText(hh, vg);
         }
         else
         {
@@ -6915,7 +6946,7 @@ public partial class App : Application
             Trace.WriteLine("[Uninstall] app data wipe requested — closing this trace first");
             DetachElevatedTrace();
             try { if (System.IO.Directory.Exists(AppPaths.AppDataDir)) System.IO.Directory.Delete(AppPaths.AppDataDir, recursive: true); }
-            catch (Exception ex) { Trace.WriteLine($"[Uninstall] app data: {ex.Message}"); return (false, driversMsg + "\n\n" + Loc.F(UiText.Settings.SaveFailed, ex.Message)); }
+            catch (Exception ex) { Trace.WriteLine($"[Uninstall] app data: {ex.Message}"); return (false, driversMsg + "\n\n" + Loc.F(UiText.Settings.SaveFailed, ex.Message), true); }
         }
 
         // A cloak left to another running copy is handled, not failed: that copy owns it and driversMsg already says
@@ -6923,30 +6954,90 @@ public partial class App : Application
         bool cloakHandled = cloakRecovered || otherCopy is not null;
         if (!cloakHandled)
             driversMsg += "\n\n" + Loc.T(UiText.Settings.RecoveryRequired);
-        return (driversOk && cloakHandled, driversMsg);
+        return (driversOk && cloakHandled, driversMsg, notable);
     }
 
     /// <summary>The user-facing sentence for one driver's removal outcome (see
     /// <see cref="DriverSetup.UninstallOutcome"/>). A foreign copy is reported as left in place, not as a
     /// failure — it belongs to whatever installed it.</summary>
-    private static string DriverOutcomeLine(string driver, DriverSetup.UninstallOutcome outcome) => outcome switch
+    private static string DriverOutcomeLine(string driver, DriverSetup.UninstallOutcome outcome) =>
+        Loc.F(DriverOutcomeKeys(outcome).One, driver);
+
+    /// <summary>Set by <see cref="RunCleanupCore"/> when it failed only because the user declined the UAC prompt;
+    /// the installer's hook then exits with <see cref="CleanupDeclinedExitCode"/> so Inno skips its own
+    /// cleanup-failed box (radiata.iss) and the user sees one message.</summary>
+    private bool _uninstallDeclined;
+    internal const int CleanupDeclinedExitCode = 6;
+
+    // Exit-code layout of --uninstall-privileged: the flag marks a finished run (a crash, a UAC refusal or an
+    // old exe never sets it), then the task bit and one nibble per driver outcome.
+    private const int PrivilegedDoneFlag = 0x1000, PrivilegedTaskBit = 0x100;
+
+    private static int PackPrivilegedResult(bool taskRemoved, DriverSetup.UninstallOutcome hh, DriverSetup.UninstallOutcome vg) =>
+        PrivilegedDoneFlag | (taskRemoved ? PrivilegedTaskBit : 0) | ((int)hh << 4) | (int)vg;
+
+    /// <summary>Run the uninstall's privileged half in one elevated child (one UAC prompt). Null when it did
+    /// not finish: the prompt was declined, the launch failed, or the child exited without a result.</summary>
+    private static (bool TaskRemoved, DriverSetup.UninstallOutcome HidHide, DriverSetup.UninstallOutcome ViGEmBus)?
+        RunPrivilegedUninstall(bool drivers, out bool declined)
+    {
+        declined = false;
+        try
+        {
+            // WorkingDirectory: never user-writable, because an elevated child's CWD is on the DLL search path.
+            using var p = Process.Start(new ProcessStartInfo(Environment.ProcessPath ?? "",
+                $"--uninstall-privileged --owner-sid {RecoveryTask.OwnerSid} --parent-pid {Environment.ProcessId}"
+                + (drivers ? " --drivers" : ""))
+                { UseShellExecute = true, Verb = "runas", WorkingDirectory = Environment.SystemDirectory });
+            if (p is null) return null;
+            p.WaitForExit();
+            int c = p.ExitCode;
+            if ((c & PrivilegedDoneFlag) == 0)
+            {
+                Trace.WriteLine($"[Uninstall] privileged half did not finish (exit {c})");
+                return null;
+            }
+            return ((c & PrivilegedTaskBit) != 0,
+                    (DriverSetup.UninstallOutcome)((c >> 4) & 0xF),
+                    (DriverSetup.UninstallOutcome)(c & 0xF));
+        }
+        catch (Exception ex)   // UAC declined / elevation unavailable
+        {
+            declined = ex is System.ComponentModel.Win32Exception { NativeErrorCode: 1223 };   // ERROR_CANCELLED
+            Trace.WriteLine($"[Uninstall] privileged half not started{(declined ? " (UAC declined)" : "")}: {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>Both drivers' outcomes: one sentence naming both when they read the same, else one line each.</summary>
+    private static string DriverOutcomesText(DriverSetup.UninstallOutcome hh, DriverSetup.UninstallOutcome vg)
+    {
+        var keys = DriverOutcomeKeys(hh);
+        return keys.One == DriverOutcomeKeys(vg).One
+            ? Loc.F(keys.Both, "HidHide", "ViGEmBus")
+            : DriverOutcomeLine("HidHide", hh) + "\n\n" + DriverOutcomeLine("ViGEmBus", vg);
+    }
+
+    private static (string One, string Both) DriverOutcomeKeys(DriverSetup.UninstallOutcome outcome) => outcome switch
     {
         DriverSetup.UninstallOutcome.Removed or DriverSetup.UninstallOutcome.PendingReboot
-            => Loc.F(UiText.Dialogs.DriverRemoved, driver),
-        DriverSetup.UninstallOutcome.NotInstalled  => Loc.F(UiText.Dialogs.DriverNotInstalled, driver),
-        DriverSetup.UninstallOutcome.NoUninstaller => Loc.F(UiText.Dialogs.DriverForeign, driver),
-        _                                          => Loc.F(UiText.Dialogs.DriverNotRemoved, driver),
+            => (UiText.Dialogs.DriverRemoved, UiText.Dialogs.DriversBothRemoved),
+        DriverSetup.UninstallOutcome.NotInstalled  => (UiText.Dialogs.DriverNotInstalled, UiText.Dialogs.DriversBothNotInstalled),
+        DriverSetup.UninstallOutcome.NoUninstaller => (UiText.Dialogs.DriverForeign, UiText.Dialogs.DriversBothForeign),
+        _                                          => (UiText.Dialogs.DriverNotRemoved, UiText.Dialogs.DriversBothNotRemoved),
     };
 
     /// <summary>After the tray app is killed, its ViGEm virtual pad devnode and HidHide filter take a moment
     /// to detach in the kernel — and the driver uninstallers fail with an access/in-use error if they run
     /// while those are still attached. Give them up to ~3 s to clear (no other Radiata process AND the
-    /// HidHide control device openable) before the uninstall proceeds. Best-effort; never throws.</summary>
-    private static void WaitForControllerDevicesToRelease()
+    /// HidHide control device openable) before the uninstall proceeds. Best-effort; never throws.
+    /// <paramref name="ignorePid"/> is the cleanup process that started an elevated caller: same exe, but not
+    /// a tray app holding the devices.</summary>
+    private static void WaitForControllerDevicesToRelease(int ignorePid = 0)
     {
         for (int i = 0; i < 15; i++)   // ~3 s max (15 × 200 ms)
         {
-            if (AnotherRadiataRunning()) { System.Threading.Thread.Sleep(200); continue; }
+            if (AnotherRadiataRunning(ignorePid)) { System.Threading.Thread.Sleep(200); continue; }
             System.Threading.Thread.Sleep(200);   // let ViGEmBus reclaim the virtual PDO after the owner died
             break;
         }
@@ -6955,7 +7046,7 @@ public partial class App : Application
     /// <summary>True if another instance of THIS installed Radiata.exe is running (same exe path, not this
     /// process). Used by the --uncloak recovery one-shot to avoid touching the cloak while the primary is
     /// live but hasn't yet claimed the single-instance mutex (logon startup race).</summary>
-    private static bool AnotherRadiataRunning()
+    private static bool AnotherRadiataRunning(int ignorePid = 0)
     {
         int me = Environment.ProcessId;
         var mine = Environment.ProcessPath;
@@ -6964,7 +7055,7 @@ public partial class App : Application
         {
             try
             {
-                if (p.Id != me && !IsWatchdogProcess(p.Id)
+                if (p.Id != me && p.Id != ignorePid && !IsWatchdogProcess(p.Id)
                     && string.Equals(p.MainModule?.FileName, mine, StringComparison.OrdinalIgnoreCase))
                     return true;
             }

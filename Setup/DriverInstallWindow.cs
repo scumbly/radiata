@@ -40,17 +40,19 @@ internal sealed class DriverInstallWindow : Window
         Closed += (_, _) => _closed.TrySetResult();
     }
 
-    public void AddLine(string text) =>
+    public void AddLine(string text, bool bold = false) =>
         _lines.Children.Add(new TextBlock
         {
             Text = text, TextWrapping = TextWrapping.Wrap, MaxWidth = 440, Margin = new Thickness(0, 2, 0, 0),
+            FontWeight = bold ? FontWeights.Bold : FontWeights.Normal,
         });
 
-    /// <summary>Append the engine's result log and unlock the Close button.</summary>
+    /// <summary>Append the engine's result log and unlock the Close button. A line that stopped setup carries the
+    /// user's next step, so it is bold.</summary>
     public void ShowResult(IEnumerable<string> log, bool ok)
     {
         AddLine("");
-        foreach (var line in log) AddLine("• " + line);
+        foreach (var line in log) AddLine("• " + line, bold: line.StartsWith(DriverSetup.StopPrefix, StringComparison.Ordinal));
         AddLine("");
         AddLine(Loc.T(ok ? UiText.Dialogs.DriverDone
                          : UiText.Dialogs.DriverFailed));

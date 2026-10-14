@@ -36,6 +36,7 @@ internal sealed partial class ConnateRenderer
         if (boss.Phase == ConnateBossPhase.Break)
         {
             DrawBossBreak(dc, c, world, fieldRadius, boss);
+            DrawBossChunks(dc, c, world, fieldRadius, boss);
             return;
         }
 
@@ -52,7 +53,53 @@ internal sealed partial class ConnateRenderer
             dc.DrawEllipse(ConnatePalette.WhiteBrush((byte)(190 * flash)), null, centre, radius * 0.92, radius * 0.92);
         }
         DrawBossCracks(dc, centre, radius, boss);
+        DrawBossChunks(dc, c, world, fieldRadius, boss);
         if (boss.Phase == ConnateBossPhase.Land) DrawBossLanding(dc, c, world, fieldRadius, boss);
+    }
+
+    /// <summary>Half the arc, in radians about the struck side, whose cut pieces leave with a chunk.</summary>
+    private const double BossChunkHalfArc = 1.05;
+
+    /// <summary>The chunks the non-final hits blew off, flying away from the side each hit struck: the sprite's
+    /// pieces on that side thrown off the field, with a few gold crystals among them. Each chunk keeps the
+    /// centre, turn and size the block had when it left, so the cut is planned once and cached, and the block
+    /// shrinking or moving afterwards does not drag it along.</summary>
+    private static void DrawBossChunks(DrawingContext dc, Point c, double world, double fieldRadius,
+                                       ConnateBossBlock boss)
+    {
+        int count = boss.ChunkCount;
+        for (int k = 0; k < count; k++)
+        {
+            ConnateBossChunk chunk = boss.ChunkAt(k);
+            if (chunk.Age >= ConnateTuning.BossChunkBurstSeconds) continue;
+            double t = Math.Clamp(chunk.Age / Math.Max(0.05, ConnateTuning.BossChunkBurstSeconds), 0, 1);
+            Point centre = Screen(c, world, chunk.X, chunk.Y);
+            double radius = chunk.Radius * world;
+
+            if (ArcadeSprites.Get(ArcadeSprites.Slot.ConnateBossBlock) is { } art)
+            {
+                var clear = new ConnateGarbageClear(chunk.X, chunk.Y, chunk.Radius, BossLumpId + 1 + k, 0, chunk.Rotation);
+                DrawGarbageSpriteShatter(dc, art, centre, radius, world / WorldToFieldScale, clear,
+                                         1 - Math.Pow(1 - t, GarbagePieceEase), BossArtReach,
+                                         chunk.Heading, BossChunkHalfArc);
+            }
+
+            double travel = 1 - Math.Pow(1 - t, 2.4);
+            Geometry shard = CrystalShard(radius * 0.26, out Geometry facet);
+            for (int i = 0; i < 4; i++)
+            {
+                double heading = chunk.Heading + (i - 1.5) * 0.42;
+                double reach = (fieldRadius + radius) * (0.95 + 0.14 * (i % 3)) * travel;
+                double spin = ((i + k * 4) * 71 % 360) + 540 * travel * (i % 2 == 0 ? 1 : -1);
+                var m = Matrix.Identity;
+                m.Rotate(spin);
+                m.Translate(centre.X + Math.Cos(heading) * reach, centre.Y + Math.Sin(heading) * reach);
+                dc.PushTransform(new MatrixTransform(m));
+                dc.DrawGeometry(ConnatePalette.Mote, ConnatePalette.MoteEdge, shard);
+                dc.DrawGeometry(ConnatePalette.MoteHot, null, facet);
+                dc.Pop();
+            }
+        }
     }
 
     /// <summary>The block itself: the owner sprite when one is loaded, else the garbage lump with its crystals.

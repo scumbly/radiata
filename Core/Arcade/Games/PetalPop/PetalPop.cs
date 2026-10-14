@@ -253,6 +253,7 @@ public sealed class PetalPop : IArcadeGame
         new(Loc.T(UiText.Arcade.PetalPopHow5), "smash"),
         new(Loc.T(UiText.Arcade.PetalPopHow3), "petals"),
         new(Loc.T(UiText.Arcade.PetalPopHow4), "multiball"),
+        new(Loc.T(UiText.Arcade.PetalPopHow6)),
     ]);
 
     // ── Run lifecycle ─────────────────────────────────────────────────────────

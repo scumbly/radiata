@@ -502,6 +502,8 @@ public static class UiText
     public static class Toasts
     {
         public const string UpdateClickBody = "Click for details.";
+        public const string UpdatedTitle    = "Radiata updated to {0}";
+        public const string UpdatedBody     = "Now running version {0}.";
         public const string LeftWheel   = "Left Wheel";
         public const string RightWheel  = "Right Wheel";
         public const string Removed     = "Removed";
@@ -728,12 +730,11 @@ public static class UiText
         public const string StageCanopy   = "CANOPY";
         public const string StageNightBloom = "NIGHT BLOOM";
         public const string StageFullBloom = "FULL BLOOM";
-        public const string ConnateHow1   = "Move with the analog stick. Tap {cross} to shoot, or hold it half a second and release for a hard slam.";
+        public const string ConnateHow1   = "Move with the analog stick. Tap {cross} to shoot, or hold it and release for a hard slam.";
         public const string ConnateHow2   = "Stars of either color snap into star gaps to make orbs.";
         public const string ConnateHow3   = "Identical colors & numbers merge together. Blended orbs can merge into matching numbers of any color, including other blended orbs.";
         public const string ConnateHow4   = "Merge combos charge your bomb, which loads after your next shot. Bomb a high-scoring piece to collect points from it.";
-        public const string ConnateHow5   = "Merges break adjacent garbage blocks, and bombs sweep them all. Clear the board and a boss block drops in that only bombs can break.";
-        public const string ConnateHow6   = "When the shot clock runs out, your orb fires itself. Stages get faster as you score, and reaching 5, 10 and 15 adds starts there to the pause menu.";
+        public const string ConnateHow5   = "Merges break adjacent garbage blocks.";
         public const string ConnateHow7   = "If the central cluster presses past the boundary, your run ends.";
         /// <summary>Connate's stage-up shout: the second line under "STAGE n".</summary>
         public const string IntensityIncreases = "INTENSITY INCREASES";
@@ -751,6 +752,7 @@ public static class UiText
         public const string PetalPopHow3  = "Some petals will take multiple hits to pop. The gold core always requires a charged hit to pass the level.";
         public const string PetalPopHow4  = "Popping a turquoise petal triggers a multiball.";
         public const string PetalPopHow5  = "Hold {cross} to charge a paddle slam. A ball charged by a slam punches harder.";
+        public const string PetalPopHow6  = "If you want paddle controls to be stable instead of springy, change the \"Control\" setting in the pause menu.";
         public const string Control       = "CONTROL";
         public const string Spring        = "SPRING";
         public const string Rail          = "RAIL";
@@ -782,7 +784,6 @@ public static class UiText
         public const string Pass          = "PASS";
         public const string ShortBy       = "SHORT BY {0}";
         public const string StageN        = "STAGE {0}";
-        public const string Ouch          = "OUCH";
         public const string TokensOfQuota = "{0} / {1}";
         public const string Score         = "SCORE {0}";
         public const string KabloomBlurb  = "Floret deduction";
@@ -824,14 +825,20 @@ public static class UiText
         public const string UninstallNeedsAdmin = "Uninstall needs administrator access (to remove the sign-in task and, if chosen, the drivers). Nothing was changed — run it again and approve the prompt.";
         public const string CleanupNeedsAdmin   = "Radiata's cleanup needs administrator access (to remove the sign-in task and, if chosen, the drivers). Nothing was changed.";
         public const string CleanupFinished     = "Radiata's cleanup finished.";
+        public const string UninstallDeclined   = "The uninstall stopped because the Windows permission prompt was declined, so Radiata is still installed. Start Radiata from the Start menu to keep using it, or run the uninstall again and choose Yes to finish.";
         public const string Uninstalled         = "Radiata's Windows integration cleanup is complete. Review any file-removal instructions below.";
         public const string DeleteFolderYourself = "Delete this folder yourself to finish removing Radiata:";
         // One line per driver; {0} is the driver's name. The cleanup dialog is the only place the driver
         // outcome is reported (the installer shows no driver line of its own), so each line must stand alone.
-        public const string DriverRemoved       = "{0} was removed. Windows finishes removing it on the next restart — nothing to do by hand.";
+        public const string DriverRemoved       = "{0} was removed, and Windows will finish removing it automatically on the next restart.";
         public const string DriverNotInstalled  = "{0} was not installed.";
         public const string DriverForeign       = "{0} on this PC was installed by another program (HP OMEN Gaming Hub, Oculus and Virtual Desktop ship their own copies), not by Radiata's setup, so it was left in place. Nothing to do.";
         public const string DriverNotRemoved    = "⚠ {0} could NOT be removed — Windows usually reports this when it's still in use or a restart is pending from installing it. Restart Windows, then remove it from Windows Settings ▸ Apps (it's a shared driver, so other controller tools may still use it).";
+        // Both drivers with the same outcome: {0} and {1} are the two driver names.
+        public const string DriversBothRemoved      = "{0} and {1} were removed, and Windows will finish removing them automatically on the next restart.";
+        public const string DriversBothNotInstalled = "{0} and {1} were not installed.";
+        public const string DriversBothForeign      = "{0} and {1} on this PC were installed by another program (HP OMEN Gaming Hub, Oculus and Virtual Desktop ship their own copies), not by Radiata's setup, so they were left in place. Nothing to do.";
+        public const string DriversBothNotRemoved   = "⚠ {0} and {1} could NOT be removed: Windows usually reports this when they're still in use or a restart is pending from installing them. Restart Windows, then remove them from Windows Settings ▸ Apps (they're shared drivers, so other controller tools may still use them).";
         public const string DriversLeft         = "The ViGEmBus and HidHide drivers were left installed (other tools may use them — remove them via Windows Settings ▸ Apps if you want).";
         /// <summary>{0} is the other copy's exe path. Shown instead of the driver-removal outcome when a
         /// Radiata from another folder is still running: the drivers and the cloak are shared, so removing

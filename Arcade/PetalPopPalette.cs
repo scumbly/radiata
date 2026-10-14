@@ -115,12 +115,14 @@ internal static class PetalPopPalette
     public static readonly Brush Ink = B(0xF2, 0xEE, 0xE3);
     public static readonly Color InkColour = Rgb(0xF2, 0xEE, 0xE3);
     public static readonly Brush InkDim = B(0xB8, 0xB3, 0xA6);
+    /// <summary>The title card's ✕ BEGIN line and the end cards' ✕ AGAIN / ○ EXIT row: pure white, as on every game's cards.</summary>
+    public static readonly Brush BeginInk = B(0xFF, 0xFF, 0xFF);
+    /// <summary>The PETALPOP wordmark's face: the core's gold (<see cref="Core"/>).</summary>
+    public static readonly Brush TitleFace = B(0xF2, 0xB8, 0x4B);
     public static readonly Brush Danger = B(0xE0, 0x5A, 0x4F);
     public static readonly Color ShoutCombo = Rgb(0xFF, 0xD2, 0x6B);
     public static readonly Color ShoutSmash = Rgb(0xFF, 0xFF, 0xFF);
     public static readonly Color ShoutLevel = Rgb(0x8F, 0xF0, 0xE0);
-    /// <summary>Behind the intro and game-over cards: the ground colour at 87%.</summary>
-    public static readonly Brush Scrim = B(0x14, 0x1A, 0x33, 0xDD);
 
     // ── Glass ─────────────────────────────────────────────────────────────────
     // The Obsidian/Pearl vocabulary the wheel and Connate share: a bowed sheen, a hard specular, and an inner

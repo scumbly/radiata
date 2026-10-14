@@ -19,8 +19,11 @@ internal static class KabloomPalette
     public static readonly Brush CoveredA = B(0xF2, 0xEE, 0xE3);
     public static readonly Brush CoveredB = B(0xE2, 0xDE, 0xD3);
     public static readonly Brush Revealed = B(0x3C, 0x40, 0x5B);
-    /// <summary>The exposed side of a raised covered petal, below its face.</summary>
-    public static readonly Brush PetalSide = B(0x29, 0x1D, 0x1F);
+    /// <summary>A cleared petal under the cursor: <see cref="Revealed"/> lifted slightly toward white.</summary>
+    public static readonly Brush RevealedFocus = B(0x4C, 0x4F, 0x68);
+    /// <summary>The exposed side of a raised covered petal, below its face. Matches the petal sprite's own edge
+    /// colour, so the side reads as the same material as the face's rim.</summary>
+    public static readonly Brush PetalSide = B(0x00, 0x24, 0x33);
     /// <summary>The covered-petal colour sweep, centre to rim: honey over the middle of the crop, violet toward
     /// its edge, clear between. Kept faint — it tints the petal art, it doesn't repaint it.</summary>
     public static readonly Color PetalTintCentre = Color.FromArgb(0x29, 0xFF, 0xE0, 0x50);
@@ -78,7 +81,7 @@ internal static class KabloomPalette
     /// covered tint, never a black-out. Kept because <see cref="FailureInk"/>'s warning below is about this
     /// brush, and a future failure surface may want a true black fill.</summary>
     public static readonly Brush Failure = B(0x00, 0x00, 0x00);
-    /// <summary>The ink for text that reports a failure — the face of the STUNG shout (<see cref="ShoutFace"/>).
+    /// <summary>The ink for text that reports a failure — the face of the STUNG headline.
     /// ⚠ Not the seed count: marking is capped at the mine count, so there is no over-flagged state for it to
     /// report.
     ///
@@ -91,19 +94,15 @@ internal static class KabloomPalette
     /// family so the two games agree on what warm means.</para></summary>
     public static readonly Brush FailureInk = B(0xE0, 0x7A, 0x5F);
 
-    // ── The STUNG shout ──
-    // Poster word art in one hue, the ember coral of FailureInk: a solid coral face parted by a thin cream
-    // rule from an extrusion drawn only as dark-coral hatch lines, with speed lines in the same dark coral
-    // trailing off the far end. The hatching carries the depth; no fill behind it.
-    public static readonly Brush ShoutFace = FailureInk;
-    public static readonly Brush ShoutInline = B(0xF2, 0xEE, 0xE3);
-    public static readonly Brush ShoutShade = B(0xA8, 0x4E, 0x3C);
-    public static readonly Brush CenterCap = B(0x81, 0xB2, 0x9A);
-    /// <summary>The full-field wash behind an end card: the covered petal's own tan at 87%. Light, not a
-    /// dim — an ended board lifts rather than darkens. ⚠ The text plaques carry their own opaque dark plate,
+    /// <summary>The STUNG headline's shade: a deeper coral than the derived default for <see cref="FailureInk"/>.</summary>
+    public static readonly Color StungShade = Color.FromRgb(0xA8, 0x4E, 0x3C);    public static readonly Brush CenterCap = B(0x81, 0xB2, 0x9A);
+    /// <summary>The full-field wash behind the bees-per-petal card: the covered petal's own tan at 87%, light
+    /// rather than a dim. ⚠ The text plaques carry their own opaque dark plate,
     /// which is what keeps their ink readable over this; anything drawn straight onto the wash has to be
     /// dark enough to win against a near-white ground.</summary>
     public static readonly Brush Scrim = B(0xF2, 0xEE, 0xE3, 0xDD);
+    /// <summary>The KABLOOM wordmark's face: the pink of the covered petals' sprite art.</summary>
+    public static readonly Brush TitleFace = B(0xCF, 0x67, 0x64);
     /// <summary>The plate behind text drawn over the crop. Fully opaque, and darker than the disc itself, because
     /// these labels sit over petals ranging from near-white to near-black and only a backing that wins against
     /// both ends makes the ink's contrast a fixed quantity. The thin pale rule around it keeps the plate from
@@ -121,6 +120,8 @@ internal static class KabloomPalette
     ];
 
     public static readonly Pen TilePen = P(Edge, 1.15);
+    /// <summary>The stroke round a raised petal's side, in the side's own colour.</summary>
+    public static readonly Pen PetalSidePen = P(PetalSide, 1.15);
     /// <summary>The selection outline: a steady black stroke, which holds its edge against every tile state
     /// (an ivory one does not, over a revealed petal). Life comes from the sparks riding it.</summary>
     public static readonly Pen FocusStrokePen = P(B(0x0C, 0x0F, 0x16), 2.6);

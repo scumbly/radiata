@@ -43,6 +43,7 @@ public static class ConnatePhysics
             }
 
             UpdatePendingMerges(bodies, pending, candidates.Values, h);
+            SampleBondGarbage(bodies, pending);
             ResolveMerges(bodies, pending, events, ref nextBodyId, garbageClears);
         }
         return events;
@@ -76,11 +77,15 @@ public static class ConnatePhysics
                     (body.VelocityX * cos - body.VelocityY * sin, body.VelocityX * sin + body.VelocityY * cos);
                 body.Rotation += platter;
             }
-            // Fired low-rank tiles spin, damping out as they settle into the heap.
+            // Fired low-rank tiles spin, shedding a fixed rate per second toward zero and stopping exactly there
+            // (linear, sign-aware; dt is the substep, so the shed per substep is rate × dt).
             if (body.SpinRate != 0)
             {
                 body.Rotation += body.SpinRate * dt;
-                body.SpinRate *= Math.Max(0, 1 - ConnateTuning.PieceSpinDampingPerSec * dt);
+                double shed = ConnateTuning.PieceSpinDampingPerSec * dt;
+                body.SpinRate = body.SpinRate > 0
+                    ? Math.Max(0, body.SpinRate - shed)
+                    : Math.Min(0, body.SpinRate + shed);
                 if (Math.Abs(body.SpinRate) < 1e-4) body.SpinRate = 0;
             }
             // Linear center gravity avoids an inverse-square singularity. (-Y,+X) is clockwise in screen space
@@ -147,7 +152,8 @@ public static class ConnatePhysics
 
     private static void ApplyOuterCushion(ConnateBody body, double dt)
     {
-        if (body.EnteringPlayfield) return;
+        // Entering garbage feels the cushion too (it starts beyond it, so the spring pulls it in); only the
+        // hard wall in Contain exempts it.
         double distance = body.RadiusFromCenter;
         double edge = distance + body.Radius;
         if (distance < 1e-8 || edge <= ConnateTuning.OuterCushionStartRadius) return;
@@ -271,7 +277,7 @@ public static class ConnatePhysics
                 || !byId.TryGetValue(bond.AId, out ConnateBody? a)
                 || !byId.TryGetValue(bond.BId, out ConnateBody? b)
                 || !IsMergeValid(bond, a, b)
-                || Distance(a, b) > (a.Radius + b.Radius) * 1.40) return true;
+                || Distance(a, b) > (a.ColliderRadius + b.ColliderRadius) * 1.40) return true;
             if (claimed.Contains(bond.AId) || claimed.Contains(bond.BId)) return true;
             claimed.Add(bond.AId); claimed.Add(bond.BId);
             return false;
@@ -315,13 +321,47 @@ public static class ConnatePhysics
             a.VelocityX += nx * pull; a.VelocityY += ny * pull;
             b.VelocityX -= nx * pull; b.VelocityY -= ny * pull;
 
-            double sharedX = (a.VelocityX + b.VelocityX) * 0.5;
-            double sharedY = (a.VelocityY + b.VelocityY) * 0.5;
+            // Mass-weighted, so the pair's total momentum is unchanged by the sharing.
+            double massSum = a.Mass + b.Mass;
+            double sharedX = (a.VelocityX * a.Mass + b.VelocityX * b.Mass) / massSum;
+            double sharedY = (a.VelocityY * a.Mass + b.VelocityY * b.Mass) / massSum;
             a.VelocityX += (sharedX - a.VelocityX) * bondDamping;
             a.VelocityY += (sharedY - a.VelocityY) * bondDamping;
             b.VelocityX += (sharedX - b.VelocityX) * bondDamping;
             b.VelocityY += (sharedY - b.VelocityY) * bondDamping;
         }
+    }
+
+    /// <summary>Records, per live bond, every garbage body touching either source piece on this step. Called on
+    /// every step from the one a bond forms on through the one it completes on, so the set a completing merge
+    /// breaks is the union of what touched at the start, at the end and anywhere between.</summary>
+    private static void SampleBondGarbage(List<ConnateBody> bodies, List<ConnatePendingMerge> pending)
+    {
+        if (pending.Count == 0) return;
+        double tolerance = ConnateTuning.CollisionSlop * 3;
+        Dictionary<long, ConnateBody>? byId = null;
+        foreach (ConnatePendingMerge bond in pending)
+        {
+            foreach (ConnateBody garbage in bodies)
+            {
+                if (!garbage.IsGarbage) continue;
+                byId ??= bodies.ToDictionary(body => body.Id);
+                if (!byId.TryGetValue(bond.AId, out ConnateBody? a) || !byId.TryGetValue(bond.BId, out ConnateBody? b))
+                    break;
+                double lumpReach = (garbage.Radius + tolerance) * ConnateTuning.GarbageBroadRadiusScale + 1e-6;
+                if (Near(garbage, a, lumpReach) && Touching(garbage, a)
+                    || Near(garbage, b, lumpReach) && Touching(garbage, b))
+                    bond.NoteTouchedGarbage(garbage.Id);
+            }
+        }
+    }
+
+    // Cheap reject ahead of Touching's collider builds; a numbered piece's broad radius is its collider radius.
+    private static bool Near(ConnateBody garbage, ConnateBody piece, double lumpReach)
+    {
+        double reach = lumpReach + piece.ColliderRadius;
+        double dx = piece.X - garbage.X, dy = piece.Y - garbage.Y;
+        return dx * dx + dy * dy <= reach * reach;
     }
 
     private static void ResolveMerges(List<ConnateBody> bodies, List<ConnatePendingMerge> pending,
@@ -336,7 +376,7 @@ public static class ConnatePhysics
 
         var byId = bodies.ToDictionary(body => body.Id);
         var used = new HashSet<long>();
-        var accepted = new List<(ConnateBody A, ConnateBody B, int ResultRank)>();
+        var accepted = new List<(ConnateBody A, ConnateBody B, int ResultRank, ConnatePendingMerge Bond)>();
 
         foreach (ConnatePendingMerge bond in matured)
         {
@@ -346,14 +386,18 @@ public static class ConnatePhysics
             int resultRank = ConnateRules.MergeResultRank(a.Rank, b.Rank);
             if (resultRank < 0) continue;
             used.Add(a.Id); used.Add(b.Id);
-            accepted.Add((a, b, resultRank));
+            accepted.Add((a, b, resultRank, bond));
         }
 
         if (accepted.Count == 0) return;
-        // Garbage clearing is sampled at the actual logical merge instant, not when the bond first formed.
-        // A garbage body touching either consumed source is scrubbed; bombs and mere contact never remove it.
-        ConnateBody[] clearedGarbage = bodies.Where(body => body.IsGarbage && accepted.Any(merge =>
-            Touching(body, merge.A) || Touching(body, merge.B))).OrderBy(body => body.Id).ToArray();
+        // A completed merge breaks every garbage body that touched either source piece at any step of the
+        // gather (SampleBondGarbage, which also ran on this step). A body in several bonds' sets breaks once;
+        // an id no longer in the field (swept by a bomb) matches nothing. Bombs and mere contact never remove it.
+        var touchedGarbageIds = new HashSet<long>();
+        foreach (var merge in accepted)
+            foreach (long id in merge.Bond.TouchedGarbageIds) touchedGarbageIds.Add(id);
+        ConnateBody[] clearedGarbage = bodies.Where(body => body.IsGarbage && touchedGarbageIds.Contains(body.Id))
+            .OrderBy(body => body.Id).ToArray();
         var clearedGarbageIds = clearedGarbage.Select(body => body.Id).ToHashSet();
         bodies.RemoveAll(body => used.Contains(body.Id) || clearedGarbageIds.Contains(body.Id));
         pending.RemoveAll(bond => used.Contains(bond.AId) || used.Contains(bond.BId)
@@ -421,10 +465,11 @@ public static class ConnatePhysics
         // spin. This is only correct because they are built from the same angle the renderer draws with —
         // never let the two drift apart.
         if (body.IsGarbage)
-            return new ColliderGeometry(false, body.Radius, [BuildGarbageLump(body)]);
+            return new ColliderGeometry(false, body.Radius * ConnateTuning.GarbageBroadRadiusScale,
+                [BuildGarbageLump(body, body.Radius)]);
         if (body.Rank == 0)
-            return new ColliderGeometry(false, body.Radius, [BuildPentagon(body)]);
-        return new ColliderGeometry(true, body.Radius, []);
+            return new ColliderGeometry(false, body.ColliderRadius, [BuildPentagon(body)]);
+        return new ColliderGeometry(true, body.ColliderRadius, []);
     }
 
     /// <summary>The 1's pentagon. Corners align with the star's five points — the star is drawn point-up at
@@ -432,7 +477,7 @@ public static class ConnatePhysics
     /// <see cref="ConnateTuning.StarColliderInset"/> so the very tips stay outside it.</summary>
     private static ConvexPart BuildPentagon(ConnateBody body)
     {
-        double r = body.Radius * ConnateTuning.StarColliderInset;
+        double r = body.ColliderRadius * ConnateTuning.StarColliderInset;
         var points = new (double X, double Y)[5];
         for (int i = 0; i < 5; i++)
         {
@@ -445,11 +490,11 @@ public static class ConnatePhysics
     /// <summary>Garbage's own silhouette, from the same id hash and lump formula
     /// <c>ConnateRenderer.DrawGarbage</c> draws with. ⚠ If that formula changes, this must change with it.
     /// Treated as convex by the SAT path: the lump varies only between 0.83× and 1.05× of the radius, so the
-    /// approximation costs at most a shallow dent.</summary>
-    private static ConvexPart BuildGarbageLump(ConnateBody body)
+    /// approximation costs at most a shallow dent. The vertices reach 1.05× the nominal radius, which is why
+    /// the collider's broad radius is <see cref="ConnateTuning.GarbageBroadRadiusScale"/> × it.</summary>
+    private static ConvexPart BuildGarbageLump(ConnateBody body, double radius)
     {
         const int points = 12;
-        double radius = body.Radius;
         var vertices = new (double X, double Y)[points];
         for (int i = 0; i < points; i++)
         {
@@ -639,14 +684,23 @@ public static class ConnatePhysics
 
     private static bool Touching(ConnateBody a, ConnateBody b)
     {
-        // Reuse the real sector collider so garbage sitting inside a 2's missing mouth does not clear falsely.
-        // Inflate only the garbage circle by a few solver-slop units to bridge positional-correction seams.
-        ColliderGeometry colliderA = BuildCollider(a), colliderB = BuildCollider(b);
+        // Reuse the real collider so garbage sitting inside a 2's missing mouth does not clear falsely.
+        // Inflate the garbage lump (and so its broad reach) by a few solver-slop units to bridge
+        // positional-correction seams.
         double tolerance = ConnateTuning.CollisionSlop * 3;
-        if (a.IsGarbage) colliderA = colliderA with { BroadRadius = colliderA.BroadRadius + tolerance };
-        if (b.IsGarbage) colliderB = colliderB with { BroadRadius = colliderB.BroadRadius + tolerance };
+        ColliderGeometry colliderA = TouchCollider(a, tolerance), colliderB = TouchCollider(b, tolerance);
+        // Garbage always carries a polygon, so the broad-phase prefilter always applies here.
+        double reach = colliderA.BroadRadius + colliderB.BroadRadius + 1e-6;
+        double dx = b.X - a.X, dy = b.Y - a.Y;
+        if (dx * dx + dy * dy > reach * reach) return false;
         return TryContact(a, b, colliderA, colliderB, out _);
     }
+
+    private static ColliderGeometry TouchCollider(ConnateBody body, double tolerance) =>
+        body.IsGarbage
+            ? new ColliderGeometry(false, (body.Radius + tolerance) * ConnateTuning.GarbageBroadRadiusScale,
+                [BuildGarbageLump(body, body.Radius + tolerance)])
+            : BuildCollider(body);
 
     private static double DegenerateAngle(long a, long b)
     {

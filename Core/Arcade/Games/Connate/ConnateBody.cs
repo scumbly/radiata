@@ -60,6 +60,11 @@ public sealed class ConnateBody
     public double Radius => IsGarbage
         ? Math.Max(ConnateTuning.GarbageRadius, GarbageRadius)
         : ConnateTuning.RadiusForRank(Rank);
+    /// <summary>Collision radius: a numbered piece's drawn <see cref="Radius"/> × <see cref="ConnateTuning.OrbColliderScale"/>
+    /// so touching pieces overlap by their stroke width; garbage keeps its drawn radius (its lump is its collider).
+    /// Contact, merge candidacy, bond cancel distance and touch tests read this; mass, containment and the
+    /// clump extent read <see cref="Radius"/>.</summary>
+    public double ColliderRadius => IsGarbage ? Radius : ConnateTuning.ColliderRadiusForRank(Rank);
     /// <summary>Area multiplier used by collision impulse and merge centre-of-mass.
     ///
     /// <para>The 1 and the 2 are a third and two thirds of a 3's worth of matter, but both are drawn and
@@ -134,5 +139,19 @@ public sealed class ConnatePendingMerge
     public int ResultRank { get; init; }
     public double Age { get; set; }
     public double Duration { get; init; }
+
+    // Garbage ids that touched either source piece on any physics step since the bond formed. Allocated on the
+    // first touch and reused for the bond's life; ids rather than references so a body swept mid-gather is just
+    // a stale entry, skipped when the merge completes. A cancelled bond discards the set with itself.
+    private List<long>? _touchedGarbage;
+    public IReadOnlyList<long> TouchedGarbageIds => (IReadOnlyList<long>?)_touchedGarbage ?? Array.Empty<long>();
+    internal bool NoteTouchedGarbage(long id)
+    {
+        _touchedGarbage ??= new List<long>(4);
+        if (_touchedGarbage.Contains(id)) return false;
+        _touchedGarbage.Add(id);
+        return true;
+    }
+
     public double Progress => Math.Clamp(Age / Math.Max(0.01, Duration), 0, 1);
 }

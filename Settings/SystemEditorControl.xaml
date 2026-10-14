@@ -361,7 +361,6 @@
           <ComboBoxItem Tag="oobe"           Content="{loc:T Run First-Run Setup…}"/>
           <ComboBoxItem Tag="drivers"        Content="{loc:T Install/Repair Drivers…}"/>
           <ComboBoxItem Tag="hid"            Content="{loc:T HID Diagnostics…}"/>
-          <ComboBoxItem Tag="controllersetup" Content="{loc:T Controller Setup…}"/>
           <ComboBoxItem Tag="emaillog"       Content="{loc:T Email Log to Developer…}"/>
           <Separator IsEnabled="False"/>
           <ComboBoxItem Tag="backup"         Content="{loc:T Back Up Settings…}"/>

@@ -43,7 +43,7 @@ public static class ConnateTuning
     /// <summary>Restitution of the first closing contact a charged body makes; the contact also clears the
     /// flag, so the bounce is spent once and ordinary collisions (<see cref="Restitution"/>) follow.</summary>
     public static double ChargedImpactRestitution = 0.55;
-    public static double FireCooldownSeconds = 0.18;
+    public static double FireCooldownSeconds = 0.20;
     public static double MuzzleClearance = 1.05;
     /// <summary>The stage-1 shot deadline, and the ceiling every later deadline is clamped to. The live
     /// deadline is <see cref="ShotClockDeadline"/>; nothing in the sim reads this constant directly except
@@ -177,6 +177,11 @@ public static class ConnateTuning
     public static double BarelyOversizeGraceSeconds = 14.40;
     public static double SoftExcessBand = 0.075;
     public static double FuseRecoveryPerSec = 1.25;
+    /// <summary>How much the fuse's own level speeds its rise: the rise rate is multiplied by
+    /// <c>1 + SizeFuse × this</c>, so a half-full fuse fills at twice the pace it started at. Applies to the
+    /// rise only; recovery is flat. Separate from <see cref="OverLimitFuseBoost"/>, which only paces the
+    /// outline pulse.</summary>
+    public static double FuseRiseBoost = 2.0;
     /// <summary>How fast an out-of-bounds tile's outline pulses, in FULL cycles (dark → orange → dark) per
     /// second at rest. The renderer multiplies this by <c>1 + SizeFuse × 2</c>, so the board gets visibly
     /// more agitated the closer the run is to ending.
@@ -238,12 +243,12 @@ public static class ConnateTuning
     /// and the readout would want a bar instead.</para></summary>
     public static int BombChargePerBomb = 8;
     /// <summary>Extra charge a bomb costs per difficulty stage index, on top of <see cref="BombChargePerBomb"/>,
-    /// for the first <see cref="BombCostMaximumSteps"/> indices: 8 at stage 1, 15 from stage 8 on. The live
+    /// for the first <see cref="BombCostMaximumSteps"/> indices: 8 at stage 1, 12 from stage 5 on. The live
     /// cost is <c>Connate.BombChargeCost</c>; a stage change leaves the charge already earned where it is and
     /// only moves the line it has to reach.</summary>
     public static int BombChargePerStage = 1;
     /// <summary>Stage indices that still raise the bomb cost; past this it stays flat.</summary>
-    public const int BombCostMaximumSteps = 7;
+    public const int BombCostMaximumSteps = 4;
     // ── Board clear ──
     // Emptying the field — every numbered tile and every garbage blob gone at once — is the rarest thing that
     // can happen here; it starts the boss-block encounter (ConnateBossBlock).
@@ -258,7 +263,7 @@ public static class ConnateTuning
     /// Half the bank, rounded to the nearest integer (half to even).</summary>
     public static double BossBonusShare = 0.5;
     /// <summary>Seconds the block takes to fall from <see cref="BossDropStartRadius"/> to its resting size.</summary>
-    public static double BossDropSeconds = 1.30;
+    public static double BossDropSeconds = 0.65;
     /// <summary>The block's radius when it begins falling in: 80% of the playfield's diameter.</summary>
     public static double BossDropStartRadius = 0.8;
     /// <summary>Resting radius: <c>BossRadiusBase + BossRadiusPerBomb × bombs</c>, so 0.3 / 0.4 / 0.5.</summary>
@@ -288,6 +293,15 @@ public static class ConnateTuning
     /// <summary>The block's turn in radians per second once landed, and the extra turn each hit adds.</summary>
     public static double BossSpinPerSec = 0.45;
     public static double BossHitSpin = 0.12;
+    /// <summary>The share of the block's ORIGINAL area each non-final hit blows off; the remaining radius is the
+    /// resting radius × √(1 − chunks × share). The final hit breaks what is left, so it takes no chunk.
+    /// <see cref="BossChunkMinimumArea"/> floors the remaining share so a raised bomb cap cannot reach zero.</summary>
+    public static double BossChunkShare = 0.25;
+    public static double BossChunkMinimumArea = 0.25;
+    /// <summary>Seconds the radius takes to ease down to its new size after a chunk leaves.</summary>
+    public static double BossChunkEaseSeconds = 0.18;
+    /// <summary>Seconds a chunk's flying pieces stay on screen.</summary>
+    public static double BossChunkBurstSeconds = 0.8;
     /// <summary>Ladder rank whose size the payout's motes (a gold stream, 6 + 1.75 per rank) and the hit's
     /// blast are cut to. Presentation only; the value paid is the reward.</summary>
     public static int BossMoteRank = 8;
@@ -400,16 +414,14 @@ public static class ConnateTuning
     /// complementary wedge and mouth, so rotation actually reads on them — on a complete circle it would be
     /// invisible. Damped away once the tile arms into the heap.</summary>
     public static double PieceSpinRevsPerSec = 1.35;
+    /// <summary>Spin shed per second, in radians per second of spin: the decay is linear and stops exactly at
+    /// zero, not proportional.</summary>
     public static double PieceSpinDampingPerSec = 2.6;
     public static double BombLifetimeSeconds = 1.10;
     public static double BombBlastRadius = 0.62;
     public static double BombBlastImpulse = 5.60;
     public static double BombBlastFalloffExponent = 1.35;
     public static double BombExplosionSeconds = 0.72;
-    /// <summary>What a bomb fired at an empty field pays when it reaches the centre. Nothing to hit would
-    /// otherwise turn an earned bomb into a dud; instead it detonates as if it had struck a tile of this value.
-    /// Not on the tile ladder — the motes carry the exact sum, and the blast art is sized off the nearest rank.</summary>
-    public static long BombEmptyFieldValue = 100;
 
     // Garbage uses elapsed active-play time. SpawnRadius is intentionally outside OuterHardLimitRadius;
     // EnteringPlayfield temporarily bypasses containment until the incoming body crosses that boundary.
@@ -420,6 +432,9 @@ public static class ConnateTuning
     /// the floor above, the second-largest-circle ceiling, and the opening blob all carry it, so every blob on
     /// the board grows together.</summary>
     public const double GarbageScale = 1.40;
+    /// <summary>Garbage's broad-phase reach as a multiple of its radius: every lump vertex lies within 1.05×
+    /// of it, so the contact prefilter measures garbage out to here rather than to the nominal radius.</summary>
+    public const double GarbageBroadRadiusScale = 1.05;
     public static double GarbageIntervalMinimumSeconds = 10.0;
     public static double GarbageIntervalMaximumSeconds = 30.0;
     public static double GarbageSpawnRadius = 1.035;
@@ -465,6 +480,25 @@ public static class ConnateTuning
     /// nudging the heap, and it is asserted; change this and the masses follow automatically, but never make
     /// one of the pair a literal again.</para></summary>
     public static double StarPairFraction = 0.76;
+
+    /// <summary>Scale on the collision radius of a numbered piece (every rank, the 1's pentagon included)
+    /// against the radius it is drawn at. The art fills its box to the edge and its black stroke sits inside
+    /// that edge, about 0.10 of a radius thick, so colliders equal to the drawn radius leave two strokes side
+    /// by side as a seam twice the stroke's width. At 0.95 two touching pieces overlap by one stroke width
+    /// (0.10 of a radius, summed over the pair) and the rims merge into one line.
+    ///
+    /// <para>⚠ Collision only, via <see cref="ColliderRadiusForRank"/> / <see cref="ConnateBody.ColliderRadius"/>.
+    /// <see cref="RadiusForRank"/> stays the drawn radius and still feeds mass, the clump extent
+    /// (<c>ClumpExtent</c>), the outer cushion and wall, garbage sizing, bombs and the boss block: shrinking
+    /// those would move the loss envelope and the score economy, not the contact. Garbage's own collider is
+    /// untouched; the orb side of an orb-against-garbage contact takes this scale like any other.</para>
+    ///
+    /// <para>Keep the overlap under the stroke: past about 0.90 the pieces visibly interpenetrate.</para></summary>
+    public static double OrbColliderScale = 0.95;
+
+    /// <summary>Collision radius of a numbered piece of <paramref name="rank"/>:
+    /// <see cref="RadiusForRank"/> × <see cref="OrbColliderScale"/>.</summary>
+    public static double ColliderRadiusForRank(int rank) => RadiusForRank(rank) * OrbColliderScale;
 
     /// <summary>The star face's radius as a fraction of the tile it sits on — the drawn shape only; it does
     /// not affect collision. Reads 1/√3 ≈ 0.577 rounded up: the share the original 120° wedge had, with a

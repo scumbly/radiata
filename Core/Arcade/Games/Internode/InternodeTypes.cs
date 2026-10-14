@@ -16,7 +16,7 @@ public enum InternodePos { Centre, LowLeft, LowRight, HighLeft, HighRight }
 /// through the ring, landing where the ring is surface. Orbs there collect on angle alone; mines never do.</summary>
 public enum InternodeAir { Grounded, Jumping, OverTop }
 
-public enum InternodeShout { None, Pass, Stage, ShortBy, Ouch }
+public enum InternodeShout { None, Pass, Stage, ShortBy }
 /// <summary>The row the HUD plaque grows at a gate.</summary>
 public enum InternodeGateNotice { None, Checkpoint, LevelUp }
 /// <summary>The plaque's bottom row: the stage went down (a fall, or a mine on an empty hand) or up (a gate

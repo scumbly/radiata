@@ -1113,7 +1113,8 @@ internal sealed partial class ConnateRenderer : IArcadeRenderer
     /// anywhere on it; every piece's flight is at least that plus the blob's own radius.</para></summary>
     private static void DrawGarbageSpriteShatter(DrawingContext dc, BitmapSource art, Point center, double radius,
                                                  double fieldRadius, ConnateGarbageClear clear, double travel,
-                                                 double artReach = GarbageArtReach)
+                                                 double artReach = GarbageArtReach, double sectorHeading = double.NaN,
+                                                 double sectorHalfWidth = 0)
     {
         double half = radius * artReach;
         if (half < 1) return;
@@ -1123,6 +1124,12 @@ internal sealed partial class ConnateRenderer : IArcadeRenderer
         for (int i = 0; i < plan.Length; i++)
         {
             ShatterPiece piece = plan[i];
+            // A chunk throws only the pieces that leave toward its side; a whole break (NaN) throws them all.
+            if (!double.IsNaN(sectorHeading))
+            {
+                double turn = Math.IEEERemainder(piece.Heading - sectorHeading, Math.PI * 2);
+                if (Math.Abs(turn) > sectorHalfWidth) continue;
+            }
             // Guaranteed past the edge by the end of the clear, from anywhere on the board.
             double distance = (fieldRadius + radius) * piece.Reach * travel;
             double spin = piece.Spin * travel;
@@ -2094,13 +2101,15 @@ internal sealed partial class ConnateRenderer : IArcadeRenderer
     private const double CraftInset = 0.855;
 
     /// <summary>How far outward the whole craft assembly is pulled at full charge, in world units.
-    /// ⚠ Modest on purpose: the round window is a hard clip (see <c>ArcadeControl</c>), so a deep draw eats
-    /// the craft's tail against the bezel. Raise it with that in view.</summary>
-    private const double CraftDrawDepth = 0.045;
+    /// ⚠ The round window is a hard clip (see <c>ArcadeControl</c>). The craft's outermost ink at full draw is
+    /// 0.9683 + 1.04 × (depth − 0.045) of the field radius at every rim angle: 0.065 gives 0.989, 0.07 touches
+    /// 0.995 and 0.09 reaches 1.015, losing the tail to the bezel. <c>TestHarness render:screens</c> holds it
+    /// to 0.995; raise the depth only with that check in view.</summary>
+    private const double CraftDrawDepth = 0.065;
 
     /// <summary>How far inward past rest the release overshoots, same units — the string's snap. Deliberately
     /// a fraction of the draw: the recoil has to read as the assembly settling, not as a second shot.</summary>
-    private const double CraftSpringDepth = 0.016;
+    private const double CraftSpringDepth = 0.023;
 
     /// <summary>Charge below which the bow does not move at all — a quick tap fires the orb and nothing else.
     /// ⚠ A hard gate, not a small pull: a few pixels of travel below it read as the craft twitching rather
@@ -2249,13 +2258,13 @@ internal sealed partial class ConnateRenderer : IArcadeRenderer
 
     private static void DrawIntro(DrawingContext dc, Point c, double field, double ppd)
     {
-        dc.DrawEllipse(ConnatePalette.Scrim, null, c, field, field);
-        ArcadeChrome.DrawCentered(dc, "CONNATE", ArcadeChrome.Ui(Math.Max(16, field * 0.12)), ConnatePalette.Ink,
-            c.X, c.Y - field * 0.46, ppd, field * 1.5);
+        dc.DrawEllipse(ArcadePalette.CardScrim, null, c, field, field);
+        ArcadeChrome.DrawPosterLine(dc, "CONNATE", ArcadeChrome.Ui(Math.Max(16, field * 0.12)), ConnatePalette.TitleFace,
+            c.X, c.Y - field * 0.46, ppd, field * 1.15, rule: Colors.White);
         // The card points at the how-to rather than compressing the rules into a tagline: the △ card is where
         // they actually live, and a slogan that half-explains them competes with it.
         ArcadeChrome.DrawCentered(dc, $"{ControllerButtons.Text(PadButton.Triangle)}  {Loc.T(UiText.Arcade.HowToPlay)}",
-            ArcadeChrome.Ui(Math.Max(9, field * 0.052)), ConnatePalette.Aim,
+            ArcadeChrome.Ui(Math.Max(9, field * 0.052)), ConnatePalette.HowToInk,
             c.X, c.Y - field * 0.08, ppd, field * 1.6);
         ArcadeChrome.DrawCentered(dc, $"{ControllerButtons.Text(PadButton.Cross)}  {Loc.T(UiText.Arcade.Begin)}",
             ArcadeChrome.Ui(Math.Max(9, field * 0.048)), ConnatePalette.InkDim,
@@ -2264,9 +2273,9 @@ internal sealed partial class ConnateRenderer : IArcadeRenderer
 
     private static void DrawGameOver(DrawingContext dc, Point c, double field, Connate game, double ppd)
     {
-        dc.DrawEllipse(ConnatePalette.Scrim, null, c, field, field);
-        ArcadeChrome.DrawCentered(dc, Loc.T(UiText.Arcade.BoundaryCrossed), ArcadeChrome.Ui(Math.Max(14, field * 0.095)), ConnatePalette.Danger,
-            c.X, c.Y - field * 0.50, ppd, field * 1.5);
+        dc.DrawEllipse(ArcadePalette.CardScrim, null, c, field, field);
+        ArcadeChrome.DrawPosterLine(dc, Loc.T(UiText.Arcade.BoundaryCrossed), ArcadeChrome.Ui(Math.Max(14, field * 0.095)), ConnatePalette.Danger,
+            c.X, c.Y - field * 0.50, ppd, field * 1.15);
         // Collected, not "field sum": the board itself is worth nothing, and this number is only what bombs
         // banked and the motes delivered.
         ArcadeChrome.DrawCentered(dc, Loc.T(UiText.Arcade.Collected), ArcadeChrome.Ui(Math.Max(8, field * 0.045)), ConnatePalette.InkDim,
@@ -2297,7 +2306,7 @@ internal sealed partial class ConnateRenderer : IArcadeRenderer
 
     // ── How-to-play illustrations ─────────────────────────────────────────────
     // One per bullet on the △ card, drawn with the board's own routines — DrawOrb, DrawBomb, DrawCraft,
-    // DrawGarbage, DrawShotClock and DrawBossBody —
+    // DrawGarbage and DrawBossBody —
     // rather than with simplified stand-ins. That matters more here than it would elsewhere: Connate's
     // rules are carried by shape and colour (a star and a socket that fit; two families that don't mix),
     // so a diagram that merely resembles a tile would be teaching the wrong thing. Everything is passed a
@@ -2354,16 +2363,6 @@ internal sealed partial class ConnateRenderer : IArcadeRenderer
             {
                 DrawGarbage(dc, new Point(c.X - r * 0.28, c.Y), r * 0.86, HowToGarbageId, 0);
                 DrawOrb(dc, new Point(c.X + r * 0.72, c.Y + r * 0.14), r * 0.34, 2, ConnateRules.HueAzure, ppd, 0, 0);
-                break;
-            }
-
-            // The held orb with the shot clock's sweep behind it, drawn as the board draws them: the wedge
-            // first, then the tile over it.
-            case "clock":
-            {
-                double tile = r * 0.60;
-                DrawShotClock(dc, c, tile * 1.34, 0.62, r, 0);
-                DrawOrb(dc, c, tile, 2, ConnateRules.HueAzure, ppd, 0, 0);
                 break;
             }
 

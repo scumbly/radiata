@@ -20,6 +20,13 @@ internal interface IArcadeRenderer
     /// pushed by the host — the renderer draws in a still, upright frame.</summary>
     void Draw(DrawingContext dc, Point c, double fieldRadius, IArcadeGame game, double ppd);
 
+    /// <summary>A second pass, called after <see cref="Draw"/> with the playfield clip and the disc-twist transform
+    /// both popped: whatever it draws may cross the bezel and land outside the round window, in the overlay's
+    /// transparent margin. Default no-op. ⚠ Everything here is drawn upright and unclipped, so keep to what has to
+    /// leave the disc and anything that must layer with it; the host's pause menu, how-to card and ready beat are
+    /// drawn after this pass.</summary>
+    void DrawOverBezel(DrawingContext dc, Point c, double fieldRadius, IArcadeGame game, double ppd) { }
+
     /// <summary>Draw one how-to-play bullet's illustration inside <paramref name="box"/>.
     /// <paramref name="art"/> is the key its <see cref="ArcadeHowToLine"/> named.
     ///

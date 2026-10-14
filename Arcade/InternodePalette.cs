@@ -338,8 +338,13 @@ internal static class InternodePalette
 
     // ── Text ──────────────────────────────────────────────────────────────────
     public static readonly Brush Ink = B(0xF2, 0xEE, 0xE3);
+    /// <summary>The INTERNODE wordmark's face: the indigo of the first pipe theme (the track's literal, before
+    /// <see cref="FloorTone"/> darkens it).</summary>
+    public static readonly Brush TitleFace = B(0x66, 0x5F, 0xA6);
     public static readonly Color InkColour = Rgb(0xF2, 0xEE, 0xE3);
     public static readonly Brush InkDim = B(0xB8, 0xB3, 0xA6);
+    /// <summary>The intro card's ✕ BEGIN line: pure white, as on every game's title card.</summary>
+    public static readonly Brush BeginInk = B(0xFF, 0xFF, 0xFF);
     public static readonly Brush Danger = B(0xE0, 0x5A, 0x4F);
     /// <summary>Short by: ember, deliberately neither the gold nor the mine fill.</summary>
     public static readonly Color ShoutFail = Rgb(0xE0, 0x7A, 0x5F);
@@ -349,8 +354,6 @@ internal static class InternodePalette
     public static readonly Pen FineCel = P(B(0x0B, 0x0D, 0x14), LabelStrokeWidth);
     /// <summary>Cel outline in sprite unit space (a unit-radius sprite), so the line thins with distance.</summary>
     public static readonly Pen CelUnit = P(B(0x0B, 0x0D, 0x14), 0.10);
-    /// <summary>Behind the intro and game-over cards: the sky's bottom tone at 87%.</summary>
-    public static readonly Brush Scrim = B(0x14, 0x12, 0x2C, 0xDD);
     /// <summary>Backing plate for the HUD and the checkpoint banner.</summary>
     public static readonly Brush Plaque = B(0x10, 0x0F, 0x22, 0xE0);
     public static readonly Pen PlaquePen = P(B(0x6E, 0x66, 0x9C), 1.0);

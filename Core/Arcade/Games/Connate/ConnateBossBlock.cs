@@ -18,6 +18,11 @@ public enum ConnateBossEvent
     Ended = 2,
 }
 
+/// <summary>A chunk a non-final hit blew off: where the block's centre was, the way it left (from the block's
+/// centre toward the contact point), the block's turn and size at that moment, and seconds since. Presentation
+/// only and never saved — a restored encounter has no chunk in flight.</summary>
+public readonly record struct ConnateBossChunk(double X, double Y, double Heading, double Rotation, double Radius, double Age);
+
 /// <summary>The rail and delivery facts the block's phase machine reads and may not change.</summary>
 /// <param name="HeldRadius">Radius of the piece on the rail, which the landing ring must reach.</param>
 /// <param name="HeldIsBomb">Whether the rail holds a bomb (loaded, delivery finished or not).</param>
@@ -65,7 +70,36 @@ public sealed class ConnateBossBlock
     /// (<see cref="ConnateTuning.BossLandShakeSeconds"/>) and by each hit (<see cref="ConnateTuning.BossHitFlashSeconds"/>).</summary>
     public double ImpactLeft { get; private set; }
 
-    public double Radius => RestingRadius(Bombs);
+    /// <summary>The block's current radius, which the hit test, the tether and the drawing all use. It is the
+    /// resting radius shrunk by the chunks taken (<see cref="ChunkRadius"/>), eased from the size it had when
+    /// the last chunk left.</summary>
+    public double Radius
+    {
+        get
+        {
+            double target = ChunkRadius(Bombs, ChunkCount);
+            double ease = Math.Clamp(_sinceChunk / Math.Max(0.01, ConnateTuning.BossChunkEaseSeconds), 0, 1);
+            return ease >= 1 ? target : _easeFrom + (target - _easeFrom) * ArcadeMath.Smoothstep(ease);
+        }
+    }
+
+    private double _easeFrom;
+    private double _sinceChunk = double.MaxValue;
+    private readonly ConnateBossChunk[] _chunks = new ConnateBossChunk[Math.Max(1, ConnateTuning.MaximumBombs)];
+
+    /// <summary>Chunks blown off so far: every hit but the final one, which breaks the remainder instead.</summary>
+    public int ChunkCount => Math.Clamp(Math.Min(Hits, Bombs - 1), 0, _chunks.Length);
+
+    /// <summary>The chunk taken by hit <paramref name="index"/> (0-based, below <see cref="ChunkCount"/>).</summary>
+    public ConnateBossChunk ChunkAt(int index) => _chunks[index];
+
+    /// <summary>The radius after <paramref name="chunks"/> chunks: the resting radius × √(remaining area share),
+    /// the area being measured against the ORIGINAL block.</summary>
+    public static double ChunkRadius(int bombs, int chunks)
+    {
+        double area = Math.Max(ConnateTuning.BossChunkMinimumArea, 1 - chunks * ConnateTuning.BossChunkShare);
+        return RestingRadius(bombs) * Math.Sqrt(area);
+    }
 
     /// <summary>The block's size in the current phase: shrinking from the start radius to its own while it
     /// falls, its own after.</summary>
@@ -116,6 +150,7 @@ public sealed class ConnateBossBlock
         Reward = reward;
         Bombs = bombs;
         Hits = 0;
+        ResetChunks();
         CapturedStage = stageIndex;
         Shattered = false;
         X = Y = VelocityX = VelocityY = 0;
@@ -129,10 +164,20 @@ public sealed class ConnateBossBlock
         Time = 0;
         Reward = 0;
         Bombs = Hits = CapturedStage = 0;
+        ResetChunks();
         Shattered = false;
         X = Y = VelocityX = VelocityY = 0;
         Rotation = 0;
         ImpactLeft = 0;
+    }
+
+    /// <summary>Settles the radius at its target and expires every chunk's flying pieces.</summary>
+    private void ResetChunks()
+    {
+        _sinceChunk = double.MaxValue;
+        _easeFrom = 0;
+        for (int i = 0; i < _chunks.Length; i++)
+            _chunks[i] = new ConnateBossChunk(0, 0, 0, 0, 0, ConnateTuning.BossChunkBurstSeconds);
     }
 
     /// <summary>Resumes a saved encounter. The caller has already rejected anything non-finite or out of range;
@@ -145,6 +190,7 @@ public sealed class ConnateBossBlock
         Reward = reward;
         Bombs = bombs;
         Hits = hits;
+        ResetChunks();
         CapturedStage = stageIndex;
         Shattered = shattered;
         X = x; Y = y; VelocityX = vx; VelocityY = vy;
@@ -163,6 +209,10 @@ public sealed class ConnateBossBlock
         if (!Active) return result;
         Time += dt;
         ImpactLeft = Math.Max(0, ImpactLeft - dt);
+        if (_sinceChunk < double.MaxValue) _sinceChunk += dt;
+        for (int i = 0; i < _chunks.Length; i++)
+            if (_chunks[i].Age < ConnateTuning.BossChunkBurstSeconds)
+                _chunks[i] = _chunks[i] with { Age = _chunks[i].Age + dt };
         if (Phase != ConnateBossPhase.Drop)
             Rotation = (Rotation + ConnateTuning.BossSpinPerSec * dt) % (Math.PI * 2);
 
@@ -232,6 +282,14 @@ public sealed class ConnateBossBlock
             if (gx * gx + gy * gy <= reach * reach)
             {
                 hits.Add(new ConnateBossHit(bomb.Id, nearX, nearY));
+                if (Hits < Bombs - 1 && Hits < _chunks.Length)
+                {
+                    double heading = gx * gx + gy * gy > 1e-12
+                        ? Math.Atan2(gy, gx) : Math.Atan2(-bomb.VelocityY, -bomb.VelocityX);
+                    _chunks[Hits] = new ConnateBossChunk(X, Y, heading, Rotation, Radius, 0);
+                    _easeFrom = Radius;
+                    _sinceChunk = 0;
+                }
                 Hits++;
                 ImpactLeft = ConnateTuning.BossHitFlashSeconds;
                 VelocityX += bomb.VelocityX * ConnateTuning.BossHitKick;

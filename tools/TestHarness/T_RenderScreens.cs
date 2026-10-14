@@ -38,6 +38,7 @@ internal static class T_RenderScreens
         // What ArcadeControl.Open does before anything draws: compiled tuning, fresh sprite resolution.
         ArcadeTuning.LoadOverrides();
         H.InvokeStatic(H.AppType("ArcadeSprites"), "Reload");
+        CraftStaysInWindow();
 
         int written = 0;
         foreach (var (name, render) in Screens())
@@ -65,6 +66,29 @@ internal static class T_RenderScreens
         H.Check($"render:screens wrote {written} screens", written > 0, dir);
     }
 
+    /// <summary>The Connate craft at full bow draw stays inside the round window's clip at every rim angle tried.
+    /// Draws the craft alone on a canvas well past the field and measures its outermost ink from the disc centre,
+    /// because inside the real window the clip hides exactly the overflow this is looking for. The bound leaves
+    /// room for the craft's idle breath.</summary>
+    private static void CraftStaysInWindow()
+    {
+        var t = H.AppType("ConnateRenderer");
+        var m = t.GetMethod("DrawCraft", BindingFlags.NonPublic | BindingFlags.Static)!;
+        const double F = 300, S = 1400; var c0 = new Point(S / 2, S / 2);
+        double world = F * 1.04, tile = ConnateTuning.TileRadius * world;
+        foreach (var (label, held, hold) in new[] { ("rest", false, 0.0), ("full draw", true, ConnateTuning.FullChargeSeconds) })
+        foreach (double deg in new[] { 0.0, 45, 90, 135, 180, 225, 270, 315 })
+        {
+            var dv = new DrawingVisual();
+            using (var dc = dv.RenderOpen())
+                m.Invoke(null, [dc, c0, world, deg * Math.PI / 180, tile, 0.0, double.PositiveInfinity, held, hold, 0.0]);
+            var f = T_Render.Capture(dv, S, S, 1);
+            double max = 0;
+            for (int y = 0; y < f.Height; y++) for (int x = 0; x < f.Width; x++)
+                if (f.Pixels[(y * f.Width + x) * 4 + 3] > 8) max = Math.Max(max, Math.Sqrt((x + .5 - c0.X) * (x + .5 - c0.X) + (y + .5 - c0.Y) * (y + .5 - c0.Y)));
+            H.Check($"Connate craft at {label}, rim angle {deg:0}: inside the window clip", max / F <= 0.995, $"outermost ink {max / F:0.0000} of the field radius");
+        }
+    }
     /// <summary>Point <c>ArcadeChrome</c>'s cached typeface at the repo's Share Tech file, keeping its fallback
     /// list.</summary>
     private static bool UseRealFont()
@@ -86,6 +110,10 @@ internal static class T_RenderScreens
         // ── Kabloom ──
         yield return ("kabloom/title", () => T_RenderArcade.Game(Kabloom.GameId, played: false));
         yield return ("kabloom/stung", () => Show(StungBoard(), hint: true));
+        // The struck bee parks over the bezel, so these carry a margin like the live window's transparent surround.
+        yield return ("kabloom/stung-wide", () => Show(StungBoard(), hint: true, margin: 140));
+        yield return ("kabloom/stung-2bees", () => Show(StungBoard(2), hint: true, margin: 140));
+        yield return ("kabloom/stung-3bees", () => Show(StungBoard(3), hint: true, margin: 140));
         yield return ("kabloom/growth-notice", () => Show(GrowthBoard(), hint: true));
         yield return ("kabloom/capacity-card", () => Show(CapacityBoard(), hint: true));
         yield return ("kabloom/campaign-complete", () => Show(CompleteCampaign(), hint: true));
@@ -105,7 +133,15 @@ internal static class T_RenderScreens
             SetProp(g, "ComboCount", 3);
             SetProp(g, "ComboDisplayLeft", ConnateTuning.ComboDisplaySeconds * 0.7);
         }), hint: true));
-        yield return ("connate/board-clear", () => Show(Played(Connate.GameId, g =>
+        // ✕ held a beat past FullChargeSeconds: the bow at full draw with the sage full-charge ring opening. The
+        // second angle puts the craft at the right-hand rim, so the draw is seen against the clip from the side.
+        yield return ("connate/full-draw", () => Show(Played(Connate.GameId, g =>
+            T_RenderArcade.Play(g, [new(ConnateTuning.FullChargeSeconds + 0.05, Cross: true)])), hint: true));
+        yield return ("connate/full-draw-side", () => Show(Played(Connate.GameId, g =>
+        {
+            SetProp(g, "PlayerAngle", Math.PI / 2);
+            T_RenderArcade.Play(g, [new(ConnateTuning.FullChargeSeconds + 0.05, Cross: true)]);
+        }), hint: true));        yield return ("connate/board-clear", () => Show(Played(Connate.GameId, g =>
         {
             SetProp(g, "BoardClearLeft", ConnateTuning.BoardClearDisplaySeconds * 0.7);
         }), hint: true));
@@ -126,6 +162,9 @@ internal static class T_RenderScreens
             SetProp(g, "CollectedScore", 12345L);
             SetProp(g, "DisplayedScore", 12345.0);
         }), hint: true));
+
+        // A settled cluster, no merges: touching pieces overlap by their stroke width, so the black rims read as one line.
+        yield return ("connate/orb-overlap-cluster", () => Show(SettledCluster(), hint: true));
 
         // The pause menu once starts are unlocked: the START AT STAGE row beside RADIAL CONTROLS, mid-run at a chosen start.
         yield return ("connate/pause-start-row-top", () => Show(StartProfile(unlocked: 20, start: 20), hint: true, paused: true));
@@ -171,6 +210,10 @@ internal static class T_RenderScreens
             }
             T_RenderArcade.Play(g, [new(0.6)]);
         }), hint: true));
+        // A block one chunk down, with the chunk's pieces and crystals still flying off the struck side, and
+        // the same block two chunks down.
+        yield return ("connate/boss-chunk-1", () => Show(BossBoard(g => BossChunkShot(g, 1, 0.16)), hint: true));
+        yield return ("connate/boss-chunk-2", () => Show(BossBoard(g => BossChunkShot(g, 2, 0.16)), hint: true));
         yield return ("connate/boss-break", () => Show(BossBoard(g =>
         {
             StepUntil(g, () => g.BossBlock.Phase == ConnateBossPhase.Fight, 6);
@@ -197,7 +240,6 @@ internal static class T_RenderScreens
         yield return ("internode/shout-pass", () => Show(InternodeShouted(InternodeShout.Pass, 0), hint: true));
         yield return ("internode/shout-stage", () => Show(InternodeShouted(InternodeShout.Stage, 3), hint: true));
         yield return ("internode/shout-short-by", () => Show(InternodeShouted(InternodeShout.ShortBy, 2), hint: true));
-        yield return ("internode/shout-ouch", () => Show(InternodeShouted(InternodeShout.Ouch, 0), hint: true));
         yield return ("internode/gate-levelup", () => Show(Played(Internode.GameId, g =>
         {
             SetProp(g, "GateNotice", InternodeGateNotice.LevelUp);
@@ -223,6 +265,22 @@ internal static class T_RenderScreens
     /// <summary>A Connate run whose board was just emptied with a level-5 bank and two bombs waiting, then driven
     /// by <paramref name="drive"/>. The bodies are cleared by reflection, as the probe does: an honest empty board
     /// is a bomb on the last tile of a board that has exactly one.</summary>
+    /// <summary>Plays a three-bomb fight up to <paramref name="hits"/> hits and then <paramref name="after"/>
+    /// seconds, with the block's last chunk still in the air.</summary>
+    private static void BossChunkShot(Connate g, int hits, double after)
+    {
+        StepUntil(g, () => g.BossBlock.Phase == ConnateBossPhase.Fight, 6);
+        for (int hit = 0; hit < hits; hit++)
+        {
+            StepUntil(g, () => g.HeldIsBomb && !g.BombDelivering, 3);
+            T_RenderArcade.Play(g, [new(0.8)]);
+            SetProp(g, "PlayerAngle", 0.9 + hit * 2.4);
+            T_RenderArcade.Play(g, [new(0.04, Cross: true), new(0.01)]);
+            StepUntil(g, () => g.BossBlock.Hits > hit, 1);
+        }
+        T_RenderArcade.Play(g, [new(after)]);
+    }
+
     private static Connate BossBoard(Action<Connate> drive)
     {
         var g = (Connate)T_RenderArcade.Create(Connate.GameId);
@@ -235,6 +293,32 @@ internal static class T_RenderScreens
         ((List<ConnateBody>)typeof(Connate).GetField("_bodies", Inst)!.GetValue(g)!).Clear();
         T_RenderArcade.Play(g, [new(0.02)]);
         drive(g);
+        return g;
+    }
+
+    /// <summary>A heap of every shape left to settle with merging locked out, so what the screen shows is the
+    /// resting contact: orbs, stars, sockets and one garbage lump.</summary>
+    private static Connate SettledCluster()
+    {
+        var g = (Connate)T_RenderArcade.Create(Connate.GameId);
+        T_RenderArcade.Play(g, [new(1.3)]);
+        var bodies = (List<ConnateBody>)typeof(Connate).GetField("_bodies", Inst)!.GetValue(g)!;
+        bodies.Clear();
+        int[] ranks = [2, 3, 2, 0, 1, 4, 2, 3, 0, 1, 2, 5];
+        for (int i = 0; i < ranks.Length; i++)
+        {
+            double angle = i * 2.399963;               // golden angle: an even scatter around the centre
+            double reach = 0.05 + 0.045 * i;
+            bodies.Add(new ConnateBody
+            {
+                Id = 9001 + i, Rank = ranks[i], Hue = i % 3 == 1 ? ConnateRules.HueEmber : ConnateRules.HueAzure,
+                X = Math.Cos(angle) * reach, Y = Math.Sin(angle) * reach, MergeLock = 1000, SizeArmed = true,
+            });
+        }
+        bodies.Add(new ConnateBody { Id = 9100, IsGarbage = true, X = 0.12, Y = -0.1, MergeLock = 1000, SizeArmed = true });
+        T_RenderArcade.Play(g, [new(0.4)]);
+        for (int i = 0; i < 360; i++) g.Step(default, ArcadeTuning.StepSeconds);
+        foreach (ConnateBody body in bodies) body.MergeLock = 1000;
         return g;
     }
 
@@ -274,7 +358,8 @@ internal static class T_RenderScreens
 
     /// <summary>The game in the round window, through the same host wiring as the matrix's <c>Game</c>.
     /// <paramref name="hint"/> false leaves the △/START how-to hint up, as a fresh session shows it.</summary>
-    private static RenderedFrame Show(IArcadeGame game, bool hint, bool paused = false, Action<object>? state = null)
+    private static RenderedFrame Show(IArcadeGame game, bool hint, bool paused = false, Action<object>? state = null,
+                                      double margin = 8)
     {
         var c = T_RenderArcade.NewControl();
         T_Render.Set(c, "_game", game);
@@ -283,7 +368,7 @@ internal static class T_RenderScreens
         T_Render.Set(c, "_musicOn", true);
         if (paused) T_Render.Set(c, "_paused", true);
         state?.Invoke(c);
-        return T_RenderArcade.Frame(c, capture: true);
+        return T_RenderArcade.Frame(c, capture: true, margin);
     }
 
     /// <summary>The game after its matrix "play" script, with <paramref name="state"/> applied on top.</summary>
@@ -303,6 +388,8 @@ internal static class T_RenderScreens
     private static Kabloom Planted(Kabloom k)
     {
         T_RenderArcade.Play(k, PressCross);
+        T_RenderArcade.Play(k, [new(0.3)]);
+        T_RenderArcade.Play(k, PressCross);
         double spent = 0;
         while (k.Phase != Kabloom.Stage.Playing && spent < 120)
         {
@@ -314,10 +401,12 @@ internal static class T_RenderScreens
         return k;
     }
 
-    private static Kabloom StungBoard()
+    private static Kabloom StungBoard(int bees = 1)
     {
         var k = Planted(new Kabloom());
         int mine = Enumerable.Range(0, k.Grid.Cells.Count).First(i => k.Board.IsMine(i) && !k.Board.IsRevealed(i));
+        // A stacked petal: the bee count is set on the planted cell directly, as only the later levels plant two or three.
+        if (bees > 1) ((byte[])typeof(KabloomBoard).GetField("_bees", Inst)!.GetValue(k.Board)!)[mine] = (byte)bees;
         SetProp(k, "FocusCell", mine);
         T_Render.Call(k, "SyncPointerToFocus");
         T_RenderArcade.Play(k, PressCross);
@@ -340,6 +429,7 @@ internal static class T_RenderScreens
         if (level == 0) throw new InvalidOperationException("no level grows both axes without a capacity change");
         var k = new Kabloom();
         T_Render.Call(k, "LoadLevel", level - 1, false, false);
+        T_RenderArcade.Play(k, PressCross);
         T_Render.Call(k, "LoadLevel", level, true, true);
         T_RenderArcade.Play(k, [new(KabloomTuning.GrowthNoticeSeconds * 0.4)]);
         if (!k.GrowthShowsCells || !k.GrowthShowsMines)
@@ -353,6 +443,7 @@ internal static class T_RenderScreens
     {
         var k = new Kabloom();
         k.ApplyPauseOption("start", 1);
+        T_RenderArcade.Play(k, PressCross);
         T_RenderArcade.Play(k, [new(KabloomTuning.CapacityNoticeMinSeconds + 0.5)]);
         if (k.CapacityNotice == 0 || !k.CapacityNoticeReady)
             throw new InvalidOperationException("the capacity card is not up and ready");
@@ -363,6 +454,8 @@ internal static class T_RenderScreens
     private static Kabloom CompleteCampaign()
     {
         var k = new Kabloom();
+        // A finished campaign was played to, so its title card was dismissed long before.
+        T_RenderArcade.Play(k, PressCross);
         T_Render.Call(k, "LoadLevel", Kabloom.CampaignLevels, false, false);
         // Planted directly: the runtime generator's search on the last, largest crop runs far past a render's
         // budget, and the finished board's bee layout is not what the card shows.

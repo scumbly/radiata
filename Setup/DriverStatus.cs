@@ -56,19 +56,41 @@ internal static class DriverStatus
     {
         try
         {
-            using var k = Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Services\ViGEmBus");
-            if (k?.GetValue("ImagePath") is not string image || image.Length == 0) return null;
-            // \SystemRoot\System32\DriverStore\… or System32\drivers\… — both relative to the Windows dir.
-            string path = image;
-            if (path.StartsWith(@"\SystemRoot\", StringComparison.OrdinalIgnoreCase))
-                path = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), path[12..]);
-            else if (path.StartsWith(@"\??\", StringComparison.OrdinalIgnoreCase))
-                path = path[4..];
-            else if (!System.IO.Path.IsPathRooted(path))
-                path = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), path);
-            return System.IO.File.Exists(path) ? FileVersionInfo.GetVersionInfo(path).FileVersion : null;
+            var path = ViGEmBusImagePath();
+            return path is not null && System.IO.File.Exists(path) ? FileVersionInfo.GetVersionInfo(path).FileVersion : null;
         }
         catch { return null; }
+    }
+
+    /// <summary>The driver file the ViGEmBus service key points at, or null when the key or its ImagePath is absent.</summary>
+    private static string? ViGEmBusImagePath()
+    {
+        using var k = Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Services\ViGEmBus");
+        if (k?.GetValue("ImagePath") is not string image || image.Length == 0) return null;
+        // \SystemRoot\System32\DriverStore\… or System32\drivers\… — both relative to the Windows dir.
+        string path = image;
+        if (path.StartsWith(@"\SystemRoot\", StringComparison.OrdinalIgnoreCase))
+            path = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), path[12..]);
+        else if (path.StartsWith(@"\??\", StringComparison.OrdinalIgnoreCase))
+            path = path[4..];
+        else if (!System.IO.Path.IsPathRooted(path))
+            path = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), path);
+        return path;
+    }
+
+    /// <summary>True when a ViGEmBus removal is waiting for a restart: the service key survives (Windows deletes
+    /// it at the next boot) but its driver file is gone and no bus devnode is present. This is the state right
+    /// after a driver uninstall, before the restart; it is NOT another program's bus, and installing over it
+    /// fails, so driver setup asks for the restart instead.</summary>
+    public static bool ViGEmBusRemovalPending()
+    {
+        try
+        {
+            if (!ViGEmBusInstalled()) return false;
+            var path = ViGEmBusImagePath();
+            return path is not null && !System.IO.File.Exists(path) && ViGEmBusDevnodes().Count == 0;
+        }
+        catch { return false; }
     }
 
     /// <summary>Where the installed ViGEmBus came from: <c>Nefarius</c> when the bundled installer's Apps
@@ -79,6 +101,7 @@ internal static class DriverStatus
     /// (<see cref="DriverSetup.UninstallViGEmBus"/>).</summary>
     public static string ViGEmBusOrigin()
     {
+        if (ViGEmBusRemovalPending()) return "removal pending (service key left until restart, driver file gone)";
         var foreign = ForeignViGEmBusName();
         if (foreign is null) return "Nefarius";
         var nodes = ViGEmBusDevnodes();
@@ -95,7 +118,7 @@ internal static class DriverStatus
     /// must not install a second bus beside it, and the uninstall must not remove it.</summary>
     public static string? ForeignViGEmBusName()
     {
-        if (!ViGEmBusInstalled()) return null;
+        if (!ViGEmBusInstalled() || ViGEmBusRemovalPending()) return null;
         // ViGEmBus tops out at 1.22.0: a higher file version is a fork by definition, whatever its Apps
         // entry says — HP's reports 10.x. A version at or below the ceiling clears nothing on its own
         // (a fork built from an older tree reports honestly), hence the two checks below.

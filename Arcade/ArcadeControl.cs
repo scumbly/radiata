@@ -1025,11 +1025,16 @@ internal sealed class ArcadeControl : FrameworkElement
         if (cc == Connate.Cue.None) return;
         if ((cc & Connate.Cue.GameOver) != 0) ArcadeSfx.Connate.GameOver();
         else if ((cc & Connate.Cue.Warning) != 0) ArcadeSfx.Connate.Warning();
-        // Payoff family: an emptied board outranks a bomb, which outranks the cascade it caused.
+        // Payoff family: an emptied board outranks a bomb, which outranks the merges that caused it. A merge is
+        // its blip every time; from the second merge since the shot the combo layer rides on top, pitched by
+        // the combo count.
         if ((cc & Connate.Cue.BoardClear) != 0) ArcadeSfx.Connate.BoardClear();
         else if ((cc & Connate.Cue.BombExplode) != 0) ArcadeSfx.Connate.BombExplode();
-        else if ((cc & Connate.Cue.Chain) != 0) ArcadeSfx.Connate.Chain(c.ChainDepth);
-        else if ((cc & Connate.Cue.Merge) != 0) ArcadeSfx.Connate.Merge();
+        else
+        {
+            if ((cc & Connate.Cue.Merge) != 0) ArcadeSfx.Connate.Merge();
+            if ((cc & Connate.Cue.ComboLayer) != 0) ArcadeSfx.Connate.ComboLayer(c.ComboCount);
+        }
         if ((cc & Connate.Cue.Fire) != 0) ArcadeSfx.Connate.Fire();
         if ((cc & Connate.Cue.BombEarned) != 0) ArcadeSfx.Connate.BombEarned();
         if ((cc & Connate.Cue.NewBest) != 0) ArcadeSfx.Connate.NewBest();
@@ -1163,8 +1168,8 @@ internal sealed class ArcadeControl : FrameworkElement
         }
         else if (_game is not null)
         {
-            // Clip to the playfield so nothing a game draws can spill over the bezel — the round window is a
-            // hard boundary, not a suggestion.
+            // Clip to the playfield so nothing a game's Draw paints can spill over the bezel — the round window is a
+            // hard boundary. The one exception is the renderer's DrawOverBezel pass below.
             var clip = new EllipseGeometry(c, field, field);
             clip.Freeze();
             dc.PushClip(clip);
@@ -1187,6 +1192,8 @@ internal sealed class ArcadeControl : FrameworkElement
 
             if (kicked) dc.Pop();
             dc.Pop();   // clip
+
+            _renderer?.DrawOverBezel(dc, c, field, _game, ppd);
         }
 
         if (_guard is { } g)

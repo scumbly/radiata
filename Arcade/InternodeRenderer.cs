@@ -2620,8 +2620,7 @@ internal sealed class InternodeRenderer : IArcadeRenderer
         {
             InternodeShout.Pass => (Loc.T(UiText.Arcade.Pass), InternodePalette.GateGoldColour, 0.13),
             InternodeShout.Stage => (Loc.F(UiText.Arcade.StageN, g.ShoutValue), InternodePalette.ShoutStage, 0.12),
-            InternodeShout.ShortBy => (Loc.F(UiText.Arcade.ShortBy, g.ShoutValue), InternodePalette.ShoutFail, 0.11),
-            _ => (Loc.T(UiText.Arcade.Ouch), InternodePalette.InkColour, 0.12),
+            _ => (Loc.F(UiText.Arcade.ShortBy, g.ShoutValue), InternodePalette.ShoutFail, 0.11),
         };
         // ⚠ At the disc centre, never up under the plaque: the top of the board belongs to the readout and the
         // phrase-name plate below it, and a shout placed there covers both. The run keeps moving underneath, so
@@ -2637,13 +2636,13 @@ internal sealed class InternodeRenderer : IArcadeRenderer
 
     private static void DrawIntro(DrawingContext dc, Point c, double field, double ppd)
     {
-        dc.DrawEllipse(InternodePalette.Scrim, null, c, field, field);
-        ArcadeChrome.DrawCentered(dc, "INTERNODE", ArcadeChrome.Ui(Math.Max(16, field * 0.12)), InternodePalette.Ink,
-            c.X, c.Y - field * 0.46, ppd, field * 1.5);
+        dc.DrawEllipse(ArcadePalette.CardScrim, null, c, field, field);
+        ArcadeChrome.DrawPosterLine(dc, "INTERNODE", ArcadeChrome.Ui(Math.Max(16, field * 0.12)), InternodePalette.TitleFace,
+            c.X, c.Y - field * 0.46, ppd, field * 1.15, rule: Colors.White);
         ArcadeChrome.DrawCentered(dc, $"{ControllerButtons.Text(PadButton.Triangle)}  {Loc.T(UiText.Arcade.HowToPlay)}",
             ArcadeChrome.Ui(Math.Max(9, field * 0.052)), InternodePalette.Accent, c.X, c.Y - field * 0.08, ppd, field * 1.6);
         ArcadeChrome.DrawCentered(dc, $"{ControllerButtons.Text(PadButton.Cross)}  {Loc.T(UiText.Arcade.Begin)}",
-            ArcadeChrome.Ui(Math.Max(9, field * 0.048)), InternodePalette.InkDim, c.X, c.Y + field * 0.16, ppd, field * 1.5);
+            ArcadeChrome.Ui(Math.Max(9, field * 0.048)), InternodePalette.BeginInk, c.X, c.Y + field * 0.16, ppd, field * 1.5);
     }
 
     // ── How-to illustrations ──────────────────────────────────────────────────

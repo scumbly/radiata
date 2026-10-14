@@ -6,6 +6,8 @@ using System.Linq;
 using System.Reflection;
 using System.Resources;
 using System.Text.Json;
+using NAudio.Wave;
+using NAudio.Wave.SampleProviders;
 
 namespace Radiata.TestHarness;
 
@@ -73,6 +75,7 @@ internal static class T_ArcadeSfx
 
         CheckCueBits();
         CheckConnateCues(banks);
+        CheckConnateBus(banks, keys);
         CheckMusic(keys);
         CheckManifestCoverage(keys);
     }
@@ -135,9 +138,8 @@ internal static class T_ArcadeSfx
     /// <summary>Every Connate cue except the silent-by-design <c>Move</c> reaches a vocabulary method in
     /// <c>ArcadeControl.PlayConnate</c>, and that method exists on <c>ArcadeSfx.Connate</c> — a cue the
     /// dispatcher never tests is a sound that never plays, and the sim cannot tell. Source-scanned because
-    /// the mapping is plain statements in a private method. Also pins the two deliberate sample choices:
-    /// the earned-bomb bank deliberately plays Kabloom's level-up take, and the chain layer is its
-    /// own Connate take.</summary>
+    /// the mapping is plain statements in a private method. Also pins that the earned-bomb and combo-layer
+    /// banks each name their own Connate stem (the Playdate edition's samples).</summary>
     private static void CheckConnateCues(List<object> banks)
     {
         var root = H.RepoRoot();
@@ -166,20 +168,142 @@ internal static class T_ArcadeSfx
             .Where(b => b.GetType().GetProperty("Name").GetValue(b) is string n && n == bankName
                         && b.GetType().GetProperty("Family").GetValue(b).ToString() == "Connate")
             .Select(b => (string[])b.GetType().GetProperty("Variants").GetValue(b)).FirstOrDefault() ?? [];
-        H.Check("Connate bomb-earned plays Kabloom's level-up take",
-                TakesOf("bomb-earned").SequenceEqual(new[] { "kabloom-levelup" }), string.Join(", ", TakesOf("bomb-earned")));
-        H.Check("Connate chain layer plays its own take",
-                TakesOf("chain-layer").SequenceEqual(new[] { "connate-chain-layer" }), string.Join(", ", TakesOf("chain-layer")));
-        // The chain cue is throttled at 75 ms, taken on the chain
-        // layer's bank so the plain merge blip (which shares the first take) is not throttled by it.
+        H.Check("Connate bomb-earned plays its own take",
+                TakesOf("bomb-earned").SequenceEqual(new[] { "connate-bomb-earned" }), string.Join(", ", TakesOf("bomb-earned")));
+        H.Check("Connate combo layer plays its own take",
+                TakesOf("combo-layer").SequenceEqual(new[] { "connate-chain-layer" }), string.Join(", ", TakesOf("combo-layer")));
+        // The combo layer is throttled at 75 ms, taken on its own bank so the plain merge blip (which fires on
+        // every merge) is not throttled by it, and starts 50 ms after the blip.
         string sfxPath = Path.Combine(root, "Arcade", "ArcadeSfx.cs");
-        bool chainThrottled = File.Exists(sfxPath) && System.Text.RegularExpressions.Regex.IsMatch(File.ReadAllText(sfxPath),
-            @"public static void Chain\(int depth\)\s*\{\s*if \(Throttled\(CnChainLayer, ArcadeSfxTuning\.ChainMinIntervalMs\)\) return;");
-        H.Check("Connate chain cue is throttled at 75 ms",
-                ControllerWheel.ArcadeSfxTuning.ChainMinIntervalMs == 75 && chainThrottled,
-                $"{ControllerWheel.ArcadeSfxTuning.ChainMinIntervalMs} ms, throttled call: {chainThrottled}");
+        string sfxText = File.Exists(sfxPath) ? File.ReadAllText(sfxPath) : "";
+        bool layerThrottled = System.Text.RegularExpressions.Regex.IsMatch(sfxText,
+            @"public static void ComboLayer\(int combo\)\s*\{\s*if \(Throttled\(CnComboLayer, ArcadeSfxTuning\.ComboLayerMinIntervalMs\)\) return;\s*PlayAfter\(CnComboLayer, 50, combo - 1\);");
+        H.Check("Connate combo layer is throttled at 75 ms and delayed 50 ms",
+                ControllerWheel.ArcadeSfxTuning.ComboLayerMinIntervalMs == 75 && layerThrottled,
+                $"{ControllerWheel.ArcadeSfxTuning.ComboLayerMinIntervalMs} ms, call shape: {layerThrottled}");
+
+        // The layer is triggered and pitched by the combo count alone: the dispatcher hands it ComboCount, the
+        // cue is raised from the second merge since the shot, and neither the dispatcher nor the sound bank
+        // reads the rolling chain window.
+        H.Check("Connate combo layer is pitched by ComboCount",
+                body.Contains("Connate.Cue.ComboLayer) != 0) ArcadeSfx.Connate.ComboLayer(c.ComboCount);"), "dispatcher call");
+        H.Check("no Connate sound path reads ChainDepth",
+                !body.Contains("ChainDepth") && !sfxText.Contains("ChainDepth")
+                && !Enum.GetNames(typeof(ControllerWheel.Connate.Cue)).Contains("Chain"),
+                "ChainDepth in PlayConnate/ArcadeSfx, or a Chain cue");
+
+        // Rung ladder against the combo, Playdate's: rung = combo - 1, 1.5 semitones a rung, capped at 8
+        // rungs (a 12-semitone octave).
+        var ladder = H.AppType("ArcadeSfx").GetMethod("Ladder", BindingFlags.NonPublic | BindingFlags.Static);
+        bool ladderOk = ladder is not null && ControllerWheel.ArcadeSfxTuning.LadderSemitones == 1.5 && ControllerWheel.ArcadeSfxTuning.LadderMaxSteps == 8;
+        string ladderWhy = "";
+        for (int combo = 2; ladderOk && combo <= 14; combo++)
+        {
+            double expect = Math.Pow(2.0, Math.Min(combo - 1, 8) * 1.5 / 12.0);
+            double got = (double)ladder.Invoke(null, new object[] { combo - 1 });
+            if (Math.Abs(got - expect) > 1e-9) { ladderOk = false; ladderWhy = $"combo {combo}: {got} vs {expect}"; }
+        }
+        H.Check("Connate combo layer rung = combo - 1 at 1.5 semitones, capped at 8", ladderOk, ladderWhy);
     }
 
+    /// <summary>The Connate bank is the Playdate edition's mono samples. The bus mixes one WaveFormat (44.1 kHz
+    /// stereo float) and a source that reads short or in another format silently drops out of the mixer, so:
+    /// every Connate stem must be a Connate-owned stem shipped in the bus's own format (the ingest widens mono
+    /// and resamples), decode to a whole number of stereo frames within full scale, and play to completion
+    /// through a real <c>Voice</c> in a <c>MixingSampleProvider</c> at the ratios the cues use (1.0, the merge's
+    /// 1.30, the ladder's top step). The manifest side — every Connate entry is ingested from the repo's
+    /// Playdate folder — is development-repository only.</summary>
+    private static void CheckConnateBus(List<object> banks, HashSet<string> keys)
+    {
+        var stems = new SortedSet<string>(StringComparer.Ordinal);
+        foreach (var b in banks)
+        {
+            var t = b.GetType();
+            if (t.GetProperty("Family").GetValue(b).ToString() != "Connate") continue;
+            foreach (var v in (string[])t.GetProperty("Variants").GetValue(b)) stems.Add(v);
+        }
+        H.Check("Connate banks name only connate-* stems", stems.Count > 0 && stems.All(s => s.StartsWith("connate-", StringComparison.Ordinal)),
+                string.Join(", ", stems.Where(s => !s.StartsWith("connate-", StringComparison.Ordinal))));
+
+        var engine = H.AppType("SfxEngine");
+        var voiceType = engine.GetNestedType("Voice", BindingFlags.NonPublic | BindingFlags.Public);
+        var mixFormat = (WaveFormat)engine.GetField("MixFormat", BindingFlags.NonPublic | BindingFlags.Static).GetValue(null);
+        double ladderTop = Math.Pow(2.0, ControllerWheel.ArcadeSfxTuning.LadderMaxSteps * ControllerWheel.ArcadeSfxTuning.LadderSemitones / 12.0);
+        int bad = 0;
+        foreach (var stem in stems)
+        {
+            string key = Prefix + stem + ".wav";
+            if (!keys.Contains(key)) continue;   // already reported as an unresolved take above
+            byte[] wav = ResourceBytes(key);
+            using var reader = new WaveFileReader(new MemoryStream(wav));
+            if (reader.WaveFormat.SampleRate != mixFormat.SampleRate || reader.WaveFormat.Channels != mixFormat.Channels)
+            { bad++; H.Fail($"{stem} ships in the bus format", $"{reader.WaveFormat.SampleRate} Hz x {reader.WaveFormat.Channels}"); continue; }
+
+            // The same decode chain SfxEngine.LoadResource runs.
+            ISampleProvider p = reader.ToSampleProvider();
+            if (p.WaveFormat.Channels == 1) p = new MonoToStereoSampleProvider(p);
+            if (p.WaveFormat.SampleRate != mixFormat.SampleRate) p = new WdlResamplingSampleProvider(p, mixFormat.SampleRate);
+            var all = new List<float>(); var chunk = new float[8192]; int n;
+            while ((n = p.Read(chunk, 0, chunk.Length)) > 0) all.AddRange(chunk.Take(n));
+            var buf = all.ToArray();
+            if (buf.Length == 0 || buf.Length % 2 != 0 || buf.Any(s => !float.IsFinite(s) || Math.Abs(s) > 1f))
+            { bad++; H.Fail($"{stem} decodes to whole stereo frames within full scale", $"{buf.Length} samples"); continue; }
+
+            foreach (double ratio in new[] { 1.0, 1.30, ladderTop })
+            {
+                int finished = 0;
+                var voice = (ISampleProvider)Activator.CreateInstance(voiceType, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, null,
+                    new object[] { buf, mixFormat, ratio, 1f, (Action)(() => finished++) }, null);
+                var mixer = new MixingSampleProvider(mixFormat) { ReadFully = false };
+                mixer.AddMixerInput(voice);
+                var outBuf = new float[mixFormat.SampleRate / 10 * 2];
+                long total = 0; int guard = 0; bool nonFinite = false;
+                try
+                {
+                    int got;
+                    while ((got = mixer.Read(outBuf, 0, outBuf.Length)) > 0 && guard++ < 200)
+                    {
+                        total += got;
+                        for (int i = 0; i < got; i++) if (!float.IsFinite(outBuf[i])) nonFinite = true;
+                    }
+                }
+                catch (Exception ex) { bad++; H.Fail($"{stem} plays at x{ratio:0.00} without an exception", ex.Message); continue; }
+                double expectFrames = buf.Length / 2 / ratio;
+                if (finished != 1 || nonFinite || Math.Abs(total / 2 - expectFrames) > 4)
+                { bad++; H.Fail($"{stem} plays to completion at x{ratio:0.00}", $"finished {finished}x, {total / 2} frames of {expectFrames:0}"); }
+            }
+        }
+        if (bad == 0) H.Pass("every Connate take is bus-format, decodes cleanly and plays to completion in the mixer", $"{stems.Count} stems x 3 ratios");
+
+        var root = H.RepoRoot();
+        if (root is null || !H.DevRepoOnly("Connate takes come from the Playdate folder", root)) return;
+        string manifestPath = Path.Combine(root, "tools", "SfxIngest", "manifest.json");
+        if (!File.Exists(manifestPath)) return;
+        using var doc = JsonDocument.Parse(File.ReadAllText(manifestPath), new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip });
+        var wrong = new List<string>();
+        foreach (var stem in stems)
+        {
+            JsonElement? entry = null;
+            foreach (var e in doc.RootElement.GetProperty("entries").EnumerateArray())
+                if (e.GetProperty("name").GetString() == stem) entry = e;
+            string src = entry?.GetProperty("source").GetString() ?? "";
+            const string folder = "repo:Assets/sfx/Contenders/Playdate/";
+            if (!src.StartsWith(folder, StringComparison.Ordinal) || !File.Exists(Path.Combine(root, src["repo:".Length..].Replace('/', Path.DirectorySeparatorChar))))
+                wrong.Add(stem);
+        }
+        H.Check("every Connate stem is ingested from an existing file in Assets/sfx/Contenders/Playdate", wrong.Count == 0, string.Join(", ", wrong));
+    }
+
+    private static byte[] ResourceBytes(string key)
+    {
+        using var stream = H.App.GetManifestResourceStream("Radiata.g.resources");
+        using var reader = new ResourceReader(stream);
+        reader.GetResourceData(key, out _, out byte[] data);
+        int off = Array.IndexOf(data, (byte)'R');
+        while (off >= 0 && off + 4 <= data.Length && !(data[off + 1] == 'I' && data[off + 2] == 'F' && data[off + 3] == 'F'))
+            off = Array.IndexOf(data, (byte)'R', off + 1);
+        return off < 0 ? [] : data[off..];
+    }
     /// <summary>Every track a game's music bed names must be a shipped resource. A build carrying none SKIPS
     /// (the folder is optional to compile), while a build carrying some must carry ALL of them — a typo would
     /// ship a game whose music switch does nothing.</summary>

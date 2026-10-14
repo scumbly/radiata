@@ -97,7 +97,7 @@ public static class PetalPopTuning
     /// <summary>Spring model: natural frequency of the critically damped follow. Higher is snappier.</summary>
     public static double SpringHz = 6.0;
     /// <summary>Rail model: top slide speed along the rail, and how fast the paddle reaches it.</summary>
-    public static double RailSpeed = 2.4;
+    public static double RailSpeed = 2.52;
     public static double RailAccelPerSec = 28;
 
     // ── Ball ──────────────────────────────────────────────────────────────────

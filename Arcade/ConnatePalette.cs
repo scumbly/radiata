@@ -35,7 +35,11 @@ internal static class ConnatePalette
     public static readonly Brush GravityLine = B(0x81, 0xB2, 0x9A, 0x66);
     public static readonly Brush Ink = B(0xF2, 0xEE, 0xE3);
     public static readonly Brush InkDim = B(0xFF, 0xFF, 0xFF);
+    /// <summary>The CONNATE wordmark's face: the orange of the craft's wing in the sprite art.</summary>
+    public static readonly Brush TitleFace = B(0xC7, 0x62, 0x10);
     public static readonly Brush Aim = B(0x81, 0xB2, 0x9A);
+    /// <summary>The title card's HOW TO PLAY line: the light blue of the blue pieces.</summary>
+    public static readonly Brush HowToInk = B(0x85, 0xA8, 0xE4);
     /// <summary>Cream at 60%.</summary>
     public static readonly Brush Limit = B(0xF2, 0xEE, 0xE3, 0x99);
     public static readonly Brush Danger = B(0xFF, 0xFF, 0xFF);
@@ -59,8 +63,6 @@ internal static class ConnatePalette
 
     private static Color Lerp(Color a, Color b, double t) => ArcadePalette.LerpRgb(a, b, t);
     public static readonly Brush Merge = B(0xFF, 0xFF, 0xFF);
-    /// <summary>The field colour at 87%.</summary>
-    public static readonly Brush Scrim = B(0x3C, 0x40, 0x5B, 0xDD);
     /// <summary>The HUD plate hanging in from the top of the disc (next tile, score, bomb meter) — the same
     /// near-black plaque Internode and Kabloom hang, so the three HUDs read as one family.</summary>
     public static readonly Brush Plaque = B(0x12, 0x16, 0x26, 0xE0);

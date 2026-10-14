@@ -32,6 +32,10 @@ public sealed class Kabloom : IArcadeGame
     public KabloomSolveReport? AcceptedSolve { get; private set; }
     public Stage Phase { get; private set; }
     public double PhaseTime { get; private set; }
+    /// <summary>The title card over a new run's untouched board. Raised by construction and by <see cref="Restart"/>;
+    /// ✕ lowers it and nothing else reads that press. Not serialized: a restored run never shows it, and
+    /// a save taken while it was up resumes on the plain unplanted board.</summary>
+    public bool IntroActive { get; private set; } = true;
     public double ActiveTime { get; private set; }
     public int CurrentLevel { get; private set; } = 1;
     public int HighestClearedLevel { get; private set; }
@@ -233,6 +237,7 @@ public sealed class Kabloom : IArcadeGame
         RerollCampaignSeed();
         _noticeSeenCapacity = 1;
         LoadLevel(StartLevelFor(StartingSize), animate: true);
+        IntroActive = true;
     }
 
     /// <summary>Which chunk of the campaign to start from: level 1, or the first level of each bees-per-petal
@@ -336,6 +341,14 @@ public sealed class Kabloom : IArcadeGame
         {
             Generation?.Advance(KabloomTuning.GenerationAttemptsPerStep);
             if (Generation?.Accepted is { } accepted) AcceptGeneratedBoard(accepted);
+            return;
+        }
+
+        // The title card takes every press. ✕ lowers it and returns, so that same press never reaches the
+        // board's reveal below; navigation is skipped too, so the stick leaves the reticle where it is.
+        if (IntroActive)
+        {
+            if (input.CrossPressed) IntroActive = false;
             return;
         }
 
@@ -886,6 +899,7 @@ public sealed class Kabloom : IArcadeGame
             if (!board.RestoreState(bees, snap.Revealed ?? [], flags, snap.Marked, snap.FirstCell, boardPhase, capacity))
                 return;
 
+            IntroActive = false;
             CurrentLevel = level;
             Profile = profile;
             Grid = grid;

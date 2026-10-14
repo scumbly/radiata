@@ -408,21 +408,20 @@ internal static class ArcadeChrome
 
     // ── Shouts ────────────────────────────────────────────────────────────────
 
-    /// <summary>How a shout's paints are built. <see cref="Quantised"/> takes the round-capped
-    /// <see cref="ArcadePalette.Solid"/> / <see cref="ArcadePalette.Stroke"/> caches (Petalpop, Internode);
-    /// <see cref="Exact"/> takes the exact alpha with butt-capped pens and a slightly fainter, heavier ring
-    /// (Connate).</summary>
+    /// <summary>How a shout's arrival ring is painted. <see cref="Quantised"/> takes the round-capped
+    /// <see cref="ArcadePalette.Stroke"/> cache (Petalpop, Internode); <see cref="Exact"/> takes the exact alpha
+    /// with a butt-capped pen and a slightly fainter, heavier ring (Connate).</summary>
     public enum ShoutPaint { Quantised, Exact }
 
-    /// <summary>The shout's outline: the cel ink every game draws in, at the label weight.</summary>
-    private static readonly Color ShoutCel = Color.FromRgb(0x0B, 0x0D, 0x14);
-    private const double ShoutEdgeWidth = 1.25;
-
-    /// <summary>One big outlined word over a board — a shockwave ring on arrival, a hard black drop shadow and
-    /// a cel outline, centred on its ink at <paramref name="centre"/>. Every size is a fraction of
-    /// <paramref name="scale"/>, the field radius. <paramref name="age"/> ≥ 1 suppresses the ring, which a
-    /// second line of the same shout must not draw again. <paramref name="hud"/> takes the HUD text scale, for
-    /// a shout over a field nothing is being played on.</summary>
+    /// <summary>One big poster-lettered word over a board — a shockwave ring on arrival, then the word as
+    /// <see cref="Poster"/> text in <paramref name="ink"/>, centred on its face at <paramref name="centre"/>.
+    /// Every size is a fraction of <paramref name="scale"/>, the field radius. <paramref name="age"/> ≥ 1
+    /// suppresses the ring, which a second line of the same shout must not draw again. <paramref name="hud"/>
+    /// takes the HUD text scale, for a shout over a field nothing is being played on.
+    ///
+    /// <para>The lettering is built once at the shout's resting size; <paramref name="pop"/> and
+    /// <paramref name="alpha"/> are applied to the cached drawing per frame, so an animating shout builds no
+    /// geometry.</para></summary>
     public static void DrawShout(DrawingContext dc, Point centre, double scale, string message, Color ink,
                                  double age, double pop, double alpha, double sizeFraction, double ppd,
                                  ShoutPaint paint, bool hud = false)
@@ -438,42 +437,159 @@ internal static class ArcadeChrome
             else DrawRing(dc, centre, r, scale * 0.020 * (1 - burst), ink, 0.8 * (1 - burst));
         }
 
-        byte exactAlpha = (byte)(255 * alpha);
-        Brush fill = exact ? ArcadePalette.ExactSolid(ink, exactAlpha) : ArcadePalette.Solid(ink, alpha);
         double size = Math.Max(12, scale * sizeFraction);
-        FormattedText text = Text(message, (hud ? Ui(size) : size) * pop, fill, ppd, TextAlignment.Left);
-        // ExtraBold, not Bold: Share Tech ships one weight, so WPF synthesises the bold, and the synthetic step
-        // from Bold is too small for the outline to hold.
-        text.SetFontWeight(FontWeights.ExtraBold);
-
-        Geometry glyphs = text.BuildGeometry(new Point());
-        Rect bounds = glyphs.Bounds;
-        if (bounds.IsEmpty) return;
-        double left = centre.X - (bounds.X + bounds.Width / 2), top = centre.Y - (bounds.Y + bounds.Height / 2);
-        Geometry Placed(double dx, double dy)
-        {
-            Geometry g = glyphs.Clone();
-            g.Transform = new TranslateTransform(left + dx, top + dy);
-            g.Freeze();
-            return g;
-        }
-
-        // A hard drop shadow, flat black and offset, never blurred: a soft shadow would be the one lighting
-        // effect on a cel-shaded board.
-        double drop = Math.Max(2, scale * 0.016);
-        if (exact)
-        {
-            dc.DrawGeometry(ArcadePalette.ExactSolid(Colors.Black, exactAlpha),
-                            ArcadePalette.ExactPen(Colors.Black, exactAlpha, ShoutEdgeWidth), Placed(drop, drop));
-            dc.DrawGeometry(fill, ArcadePalette.ExactPen(ShoutCel, exactAlpha, ShoutEdgeWidth), Placed(0, 0));
-        }
-        else
-        {
-            dc.DrawGeometry(ArcadePalette.Solid(Colors.Black, alpha), ArcadePalette.Stroke(Colors.Black, ShoutEdgeWidth, alpha),
-                            Placed(drop, drop));
-            dc.DrawGeometry(fill, ArcadePalette.Stroke(ShoutCel, ShoutEdgeWidth, alpha), Placed(0, 0));
-        }
+        PosterText poster = Poster(message, hud ? Ui(size) : size, ink, ppd, maxWidth: scale * ShoutMaxBody);
+        DrawPosterCentred(dc, poster, centre, pop, alpha);
     }
+
+    /// <summary>The widest a shout's body (face plus hatching) may be, in field radii; a longer word shrinks to it.</summary>
+    private const double ShoutMaxBody = 0.95;
+
+    // ── Poster text ───────────────────────────────────────────────────────────
+
+    /// <summary>A word set as poster lettering: bold geometric caps in a solid face colour, a thin rule round
+    /// the glyphs, and a depth extruded down-left that is drawn only as diagonal hatch lines in a darker shade.
+    /// Built once into a frozen <see cref="Drawing"/> in glyph space (origin at the text's layout origin).</summary>
+    /// <param name="Face">The glyph geometry's bounds — the ink the lettering is centred and placed by.</param>
+    /// <param name="Body">The face plus its extrusion — what must clear anything beside it.</param>
+    public sealed record PosterText(Drawing Drawing, Rect Face, Rect Body);
+
+    /// <summary>The rule round the face when a caller passes none.</summary>
+    private static readonly Color PosterRuleDefault = Color.FromRgb(0xF2, 0xEE, 0xE3);
+    /// <summary>Each channel of a face colour that has no explicit shade is scaled by this to get its shade.</summary>
+    private const double PosterShadeFactor = 0.72;
+    private const int PosterCacheLimit = 64;
+    private static readonly Dictionary<(string, double, Color, Color, double, double, Color), PosterText> _posters = [];
+
+    /// <summary>The geometric bold face: falls back through Windows' own heavy faces. A comma list, so a machine
+    /// missing one lands on the next rather than on a default.</summary>
+    private static Typeface? _posterFace;
+    private static Typeface PosterFace => _posterFace ??= new Typeface(
+        new FontFamily("Century Gothic, Futura, Segoe UI"),
+        FontStyles.Normal, FontWeights.Bold, FontStretches.Normal);
+
+    /// <summary>The shade a face colour takes when none is given: each channel × <see cref="PosterShadeFactor"/>.</summary>
+    public static Color PosterShade(Color face) => Color.FromRgb(
+        (byte)Math.Round(face.R * PosterShadeFactor), (byte)Math.Round(face.G * PosterShadeFactor),
+        (byte)Math.Round(face.B * PosterShadeFactor));
+
+    /// <summary>A brush's colour, for the poster entry points; a non-solid brush reads as white.</summary>
+    public static Color ColourOf(Brush brush) =>
+        brush is SolidColorBrush s ? Color.FromRgb(s.Color.R, s.Color.G, s.Color.B) : Colors.White;
+
+    /// <summary>The cached poster lettering for <paramref name="text"/> at <paramref name="size"/> (em height in
+    /// device-independent pixels). <paramref name="maxWidth"/> &gt; 0 shrinks the size until the body fits that
+    /// width. The cache is keyed on everything that shapes the drawing and is emptied when it fills, so a
+    /// shout that changes text each frame cannot grow it.</summary>
+    public static PosterText Poster(string text, double size, Color face, double ppd, Color? shade = null,
+                                    double maxWidth = 0, Color? rule = null)
+    {
+        face = Color.FromRgb(face.R, face.G, face.B);
+        Color shaded = shade ?? PosterShade(face);
+        Color ruled = rule ?? PosterRuleDefault;
+        var key = (text, Math.Round(size, 2), face, shaded, ppd, Math.Round(maxWidth, 1), ruled);
+        if (_posters.TryGetValue(key, out var hit)) return hit;
+        PosterText built = BuildPoster(text, size, face, shaded, ppd, ruled);
+        if (maxWidth > 0 && built.Body.Width > maxWidth)
+            built = BuildPoster(text, size * maxWidth / built.Body.Width, face, shaded, ppd, ruled);
+        if (_posters.Count >= PosterCacheLimit) _posters.Clear();
+        _posters[key] = built;
+        return built;
+    }
+
+    private static PosterText BuildPoster(string message, double size, Color face, Color shade, double ppd, Color rule)
+    {
+        var text = new FormattedText(message, CultureInfo.InvariantCulture, System.Windows.FlowDirection.LeftToRight,
+                                     PosterFace, size, Brushes.Black, ppd);
+        Geometry glyphs = text.BuildGeometry(new Point());
+        Rect faceBounds = glyphs.Bounds;
+        var group = new DrawingGroup();
+        if (faceBounds.IsEmpty) { group.Freeze(); return new PosterText(group, Rect.Empty, Rect.Empty); }
+
+        double depth = size * 0.16;         // extrusion, down-left
+        Vector dir = new(-0.55, 1.0);
+
+        // The extrusion's footprint: the glyphs swept along `dir` by `depth`, as a union of copies about a
+        // pixel apart. Only its hatching is drawn — the lines alone carry the depth.
+        int steps = Math.Max(2, (int)Math.Ceiling(depth));
+        Geometry block = glyphs;
+        for (int s = 1; s <= steps; s++)
+        {
+            var copy = glyphs.Clone();
+            copy.Transform = new TranslateTransform(dir.X * depth * s / steps, dir.Y * depth * s / steps);
+            block = Geometry.Combine(block, copy, GeometryCombineMode.Union, null);
+        }
+        block.Freeze();
+        Rect body = block.Bounds;
+
+        using (var g = group.Open())
+        {
+            Pen Flat(Color c, double w)
+            {
+                var brush = new SolidColorBrush(c);
+                brush.Freeze();
+                var p = new Pen(brush, w) { LineJoin = PenLineJoin.Miter };
+                p.Freeze();
+                return p;
+            }
+
+            // The extrusion: diagonal hatching clipped to the footprint, and nothing else.
+            g.PushClip(block);
+            double hatchPitch = Math.Max(2, size * 0.045);
+            Pen hatch = Flat(shade, Math.Max(0.8, size * 0.018));
+            for (double x = body.Left - body.Height; x < body.Right; x += hatchPitch)
+                g.DrawLine(hatch, new Point(x, body.Bottom), new Point(x + body.Height, body.Top));
+            g.Pop();
+
+            // The face: a thin rule parting it from the hatching, then the solid colour on top so only the
+            // rule's outer half shows.
+            var fill = new SolidColorBrush(face);
+            fill.Freeze();
+            g.DrawGeometry(null, Flat(rule, size * 0.06), glyphs);
+            g.DrawGeometry(fill, null, glyphs);
+        }
+        group.Freeze();
+        return new PosterText(group, faceBounds, body);
+    }
+
+    /// <summary>Draw <paramref name="poster"/> with its glyph-space origin moved to <paramref name="origin"/>.</summary>
+    public static void DrawPoster(DrawingContext dc, PosterText poster, Point origin)
+    {
+        if (poster.Face.IsEmpty) return;
+        dc.PushTransform(new TranslateTransform(origin.X, origin.Y));
+        dc.DrawDrawing(poster.Drawing);
+        dc.Pop();
+    }
+
+    /// <summary>Draw <paramref name="poster"/> with its face centred on <paramref name="centre"/>, scaled by
+    /// <paramref name="scale"/> about that point and faded as one layer by <paramref name="alpha"/> (the rule,
+    /// face and hatching overlap, so a per-brush fade would show the seams).</summary>
+    public static void DrawPosterCentred(DrawingContext dc, PosterText poster, Point centre, double scale = 1, double alpha = 1)
+    {
+        if (poster.Face.IsEmpty || alpha <= 0.004) return;
+        bool fade = alpha < 0.996;
+        if (fade) dc.PushOpacity(alpha);
+        dc.PushTransform(new ScaleTransform(scale, scale, centre.X, centre.Y));
+        DrawPoster(dc, poster, new Point(centre.X - poster.Face.X - poster.Face.Width / 2,
+                                         centre.Y - poster.Face.Y - poster.Face.Height / 2));
+        dc.Pop();
+        if (fade) dc.Pop();
+    }
+
+    /// <summary>An end-card headline in poster lettering in <paramref name="ink"/>, centred on
+    /// <paramref name="cx"/>, shrunk to <paramref name="maxWidth"/> if it would run wider. Placed where a
+    /// <see cref="DrawCentered"/> line of the same <paramref name="size"/> and <paramref name="top"/> would put
+    /// its caps. Returns the height of that line, so callers can stack.</summary>
+    public static double DrawPosterLine(DrawingContext dc, string s, double size, Brush ink, double cx, double top,
+                                        double ppd, double maxWidth, Color? rule = null)
+    {
+        PosterText poster = Poster(s, size, ColourOf(ink), ppd, maxWidth: maxWidth, rule: rule);
+        DrawPosterCentred(dc, poster, new Point(cx, top + size * PosterCapCentre));
+        return size * 1.2;
+    }
+
+    /// <summary>Where the caps of a <see cref="Face"/> line centre below its layout top, in em.</summary>
+    private const double PosterCapCentre = 0.6;
 
     /// <summary>A fading ring from the quantised <see cref="ArcadePalette.Stroke"/> cache, at least a pixel
     /// wide; skipped once it is too faint or too thin to see.</summary>

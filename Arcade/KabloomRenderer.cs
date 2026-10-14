@@ -22,8 +22,7 @@ internal sealed class KabloomRenderer : IArcadeRenderer
         dc.DrawEllipse(KabloomPalette.Disc, null, c, fieldRadius, fieldRadius);
         dc.DrawEllipse(KabloomPalette.DiscGlow, null, c, fieldRadius * 0.72, fieldRadius * 0.72);
 
-        Point boardOrigin = new(c.X - fieldRadius * 0.055, c.Y + fieldRadius * 0.008);
-        double scale = fieldRadius * 0.785 / Math.Max(1e-6, k.Grid.Radius);
+        BoardFrame(c, fieldRadius, k, out Point boardOrigin, out double scale);
 
         // ── The level transition ──
         // One clock from the sim drives all three parts. The board pulls away on a single sine, so it returns
@@ -48,7 +47,16 @@ internal sealed class KabloomRenderer : IArcadeRenderer
         // Resting gems join the raised pass in the same order, keyed on their hub, so the petals below a hub cover
         // its walls and the gem covers the petals above.
         int nextGem = 0;
+        // ⚠ Bounds-checked, alone among the sim indices this renderer reads: an out-of-range focus cell would
+        // throw inside OnRender, which is a hard app crash with a game up — the cloak lifts and the game
+        // underneath takes double input. A missing outline for one frame is the cheaper failure by far.
+        bool focusValid = k.FocusCell >= 0 && k.FocusCell < paths.Length;
+        // A flat (revealed) focus cell gets its outline and sparks between the passes, so the raised petals
+        // around it cover them as they cover the cell itself. A raised one is drawn over the board below.
+        bool focusFlat = focusValid && lifts[k.FocusCell] <= 0;
         for (int pass = 0; pass < 2; pass++)
+        {
+        if (pass == 1 && focusFlat) DrawFocusOutline(dc, paths[k.FocusCell], k.PresentationTime);
         foreach (int i in topDown)
         {
             if ((lifts[i] > 0) != (pass == 1)) continue;
@@ -64,6 +72,7 @@ internal sealed class KabloomRenderer : IArcadeRenderer
             // The cursor cell wears its own face where the artist supplied one; the focus outline and its
             // sparks are still drawn over the top, so the selection reads with or without art.
             bool focused = i == k.FocusCell;
+            if (focused && ReferenceEquals(fill, KabloomPalette.Revealed)) fill = KabloomPalette.RevealedFocus;
 
             if (transitioning)
             {
@@ -92,6 +101,7 @@ internal sealed class KabloomRenderer : IArcadeRenderer
                             PetalSlot(k, cell, visuallyRevealed, false, focused), shade: !visuallyRevealed,
                             lifts[i], visuallyRevealed ? null : tint);
         }
+        }
         while (nextGem < gemsTopDown.Length)
             DrawRestingGem(dc, boardOrigin, scale, k, outlines, gemsTopDown[nextGem++]);
 
@@ -111,10 +121,7 @@ internal sealed class KabloomRenderer : IArcadeRenderer
 
         DrawCellContents(dc, boardOrigin, scale, k, ppd, lifts);
 
-        // ⚠ Bounds-checked, alone among the sim indices this renderer reads: an out-of-range focus cell would
-        // throw inside OnRender, which is a hard app crash with a game up — the cloak lifts and the game
-        // underneath takes double input. A missing outline for one frame is the cheaper failure by far.
-        if (k.FocusCell >= 0 && k.FocusCell < paths.Length)
+        if (focusValid && !focusFlat)
         {
             double lift = lifts[k.FocusCell];
             if (lift > 0) dc.PushTransform(LiftTransform(lift));
@@ -129,13 +136,29 @@ internal sealed class KabloomRenderer : IArcadeRenderer
         // anything without reading as a mistake — it flies to the plate's own gem, so ending the flight
         // behind the plate is the one place it must not go. Drawing here also means it reads the gem target
         // DrawHud wrote this frame rather than last frame's.
-        DrawDiamonds(dc, boardOrigin, scale, c, fieldRadius, k, ppd);
-        DrawStage(dc, c, fieldRadius, k, ppd);
-        // Over the scrim: the bee you set off is the thing a lost board is for. The card's words go over the
-        // bee, so they are never hidden behind the insect parked beside them.
+        DrawDiamonds(dc, boardOrigin, scale, c, fieldRadius, k, outlines);
+        if (k.IntroActive) DrawIntro(dc, c, fieldRadius, ppd);
+        else DrawStage(dc, c, fieldRadius, k, ppd);
+        // The struck bee and the outcome card are drawn by DrawOverBezel, after the host pops the playfield clip.
+        DrawGeneratingBee(dc, c, fieldRadius, k);
+    }
+
+    /// <summary>Where the board sits in the playfield: its origin and its scale (field units per grid unit).</summary>
+    private static void BoardFrame(Point c, double field, Kabloom k, out Point origin, out double scale)
+    {
+        origin = new Point(c.X - field * 0.055, c.Y + field * 0.008);
+        scale = field * 0.785 / Math.Max(1e-6, k.Grid.Radius);
+    }
+
+    /// <summary>The failure card's second pass, outside the playfield clip: the struck bee leaves the disc and
+    /// parks over its rim, so it has to be drawn where the clip no longer applies. The card's words follow it, so
+    /// the bee never hides them while it crosses the board.</summary>
+    public void DrawOverBezel(DrawingContext dc, Point c, double fieldRadius, IArcadeGame game, double ppd)
+    {
+        if (game is not Kabloom k) return;
+        BoardFrame(c, fieldRadius, k, out Point boardOrigin, out double scale);
         DrawStruckBee(dc, c, fieldRadius, boardOrigin, scale, k);
         DrawOutcomeCard(dc, c, fieldRadius, k, ppd);
-        DrawGeneratingBee(dc, c, fieldRadius, k);
     }
 
     /// <summary>The generation wait, carried by a bee: a fixed 100 DIP tall insect wanders a lazy Lissajous
@@ -170,42 +193,24 @@ internal sealed class KabloomRenderer : IArcadeRenderer
     /// <summary>How far from centre the wandering bee ranges, as a fraction of the field radius.</summary>
     private const double GeneratingBeeReach = 0.55;
 
-    /// <summary>Which way the bee art looks. ⚠ Must match the drawing: the bee is parked on the side of the
-    /// card it can face, so it looks at the words rather than away from them. Flip this if the art faces the
-    /// other way — nothing else needs changing.</summary>
-    private const bool BeeFacesLeft = true;
-
-    /// <summary>Which side of the card the parked bee sits on: +1 right, −1 left. ⚠ Read by the card as well,
-    /// which steps the opposite way to clear it — two places deriving this from the facing separately is how
-    /// they end up disagreeing.</summary>
-    private static int StruckBeeSide => BeeFacesLeft ? 1 : -1;
-
-    /// <summary>How far the end card is offset from the disc's centre, away from the parked bee, in field
-    /// radii. A third of the radius puts its near side a third of the diameter in from the rim it sits
-    /// nearest, which is the measure this is set by.</summary>
-    private const double StungCardShift = 1.0 / 3;
-
-    /// <summary>How far past the disc's centre, toward the parked bee, the STUNG shout may reach, in field
-    /// radii. The front bee's drawn head sits about 0.18 in; each extra bee from a stacked petal parks
-    /// <see cref="StruckBeeStackDx"/> nearer the card, so the allowance shrinks by that per bee, keeping about
-    /// 0.06 clear.</summary>
-    private static double StungShoutReach(Kabloom game)
-    {
-        int id = game.HitBeeCell;
-        int bees = id >= 0 && id < game.Grid.Cells.Count ? Math.Clamp(game.Board.BeeCount(id), 1, 3) : 1;
-        return 0.12 - StruckBeeStackDx * (bees - 1);
-    }
-
     /// <summary>How long the failure scrim takes to reach full strength once the card may show: the struck bee's
     /// own flight time, so the wash completes as the bee parks at full size.</summary>
     private static double StungScrimFadeSeconds => KabloomTuning.StungBeeFlightSeconds;
 
-    /// <summary>The parked bee's size, in field radii, and where it settles beside the card. The size is set
-    /// so the drawn insect stands 40% of the playfield's height — the glyph and the art both span a little
-    /// over twice this.</summary>
-    private const double StruckBeeSize = 0.39;
-    private const double StruckBeeX = 0.45;
-    private const double StruckBeeY = -0.10;
+    /// <summary>The parked bee's size, in field radii: the drawn insect, wings included, is about
+    /// <see cref="StruckBeeInkRadius"/> × this in radius, so it stands about half the playfield's radius high.</summary>
+    private const double StruckBeeSize = 0.351;
+
+    /// <summary>The bee art's drawn radius, wings included, as a fraction of its size; the art box is a shade
+    /// larger.</summary>
+    private const double StruckBeeInkRadius = 0.9;
+
+    /// <summary>Where the front bee parks: this many degrees above the disc's right-hand horizontal, hovering over
+    /// the bezel, with <see cref="StruckBeeRimOverlap"/> of its ink diameter inside the rim. The art looks left, so
+    /// on the right of the disc it looks at the card. Its ink reaches about 0.14 field radii past the control's own
+    /// square (about 0.35 for a three-bee string); the overlay window is full-screen and transparent, so that draws.</summary>
+    private const double StruckBeeAngleDegrees = 45;
+    private const double StruckBeeRimOverlap = 0.20;
 
     /// <summary>How much bigger than the mine in its own cell the struck bee starts. At 1 it grew out of the
     /// cell at exactly the size it had been sitting there, which is honest but leaves the beat that says
@@ -220,8 +225,8 @@ internal sealed class KabloomRenderer : IArcadeRenderer
     /// <summary>The bee that stung you, drawn over the scrim that greys the crop and under the card's words —
     /// everything else on a failed board is context for this one cell.
     ///
-    /// <para>⚠ It does not leave. It flies its wandering arc off the cell, swells, and parks beside the
-    /// results card, bobbing there until the board is exited or restarted — so the thing that ended the run
+    /// <para>⚠ It does not leave. It flies its wandering arc off the cell, swells, crosses the bezel and parks
+    /// above and to the right of the disc, overlapping the rim slightly, bobbing there until the board is exited or restarted — so the thing that ended the run
     /// is still on screen while the run is being read. The bees on a cleared board are the other case and
     /// still go off the crop; that is <see cref="DrawDepartingBee"/>, which this deliberately does not
     /// share.</para>
@@ -238,16 +243,13 @@ internal sealed class KabloomRenderer : IArcadeRenderer
         if (reveal < 0.22) return;
 
         var from = Screen(game.Grid.Cells[id].Center, origin, scale);
-        // Parked on the side it can look toward the words from.
-        var rest = new Point(c.X + StruckBeeSide * field * StruckBeeX, c.Y + field * StruckBeeY);
+        double rim = field / (1 - ArcadeChrome.BezelFrac);
 
         double raw = Math.Clamp(Math.Max(0, game.HitBeeProgress), 0, 1);
-        double dx = rest.X - from.X, dy = rest.Y - from.Y;
-        double len = Math.Sqrt(dx * dx + dy * dy);
         double small = Math.Max(2.8, scale * 0.30) * StruckBeeStartScale;
 
         // A stacked petal lets out every bee it held. They leave one after another, sway on their own phases,
-        // and park in a stagger behind the front one — each a step smaller and offset — drawn back to front so
+        // and park in a string along the rim below the front one — each a step smaller — drawn back to front so
         // the front bee, the one that carries the bolts, is on top.
         int bees = Math.Clamp(game.Board.BeeCount(id), 1, 3);
         dc.PushOpacity(Smooth(Math.Clamp((reveal - 0.22) / 0.35, 0, 1)));
@@ -256,8 +258,17 @@ internal sealed class KabloomRenderer : IArcadeRenderer
             // Later bees start later but all land together at the end of the flight.
             double lag = k * StruckBeeStagger;
             double t = Smooth(Math.Clamp((raw - lag) / Math.Max(0.05, 1 - lag), 0, 1));
-            var park = new Point(rest.X - StruckBeeSide * field * StruckBeeStackDx * k, rest.Y - field * StruckBeeStackDy * k);
-            var at = new Point(from.X + (park.X - from.X) * t, from.Y + (park.Y - from.Y) * t);
+            // Each bee hovers the same share of its own ink over the rim; later ones sit further round the rim
+            // toward three o'clock, a bee's width apart, so the string stays off the card and the HUD.
+            double parkSize = field * StruckBeeSize * Math.Pow(StruckBeeStackScale, k);
+            double inkR = parkSize * StruckBeeInkRadius;
+            double reach = rim + inkR * (1 - 2 * StruckBeeRimOverlap);
+            double angle = StruckBeeAngleDegrees * Math.PI / 180
+                           - k * StruckBeeStackStep * field * StruckBeeSize * StruckBeeInkRadius / reach;
+            var park = new Point(c.X + reach * Math.Cos(angle), c.Y - reach * Math.Sin(angle));
+            double dx = park.X - from.X, dy = park.Y - from.Y;
+            double len = Math.Sqrt(dx * dx + dy * dy);
+            var at = new Point(from.X + dx * t, from.Y + dy * t);
 
             // The wander runs across the flight and is pinned to zero at both ends, so the arc curves and
             // zigzags on the way but lands exactly on the parking spot rather than jittering around it.
@@ -272,7 +283,8 @@ internal sealed class KabloomRenderer : IArcadeRenderer
             at = new Point(at.X, at.Y + Math.Sin(game.PresentationTime * Math.Tau * StruckBeeBobHz + k * 0.9)
                                         * field * StruckBeeBob * t);
 
-            double size = (small + (field * StruckBeeSize - small) * t) * Math.Pow(StruckBeeStackScale, k);
+            double size = small + (parkSize - small) * t;
+            // Unclipped: the shadow falls wherever the bee is, over the desktop as well as the board.
             DrawStruckBeeShadow(dc, at, size, t);
             // ⚠ No bolts until the front bee is parked at full size. Scaled down and dragged along the flight
             // they read as a bee that arrived already sparking, and their zigzag fought the flight's own wiggle
@@ -288,11 +300,10 @@ internal sealed class KabloomRenderer : IArcadeRenderer
 
     /// <summary>Share of the flight each further bee from a stacked petal waits before leaving.</summary>
     private const double StruckBeeStagger = 0.18;
-    /// <summary>Where each further bee parks relative to the one in front: away from the card and upward, as
-    /// fractions of the field radius, and how much smaller it is.</summary>
-    private const double StruckBeeStackDx = 0.075;
-    private const double StruckBeeStackDy = 0.065;
+    /// <summary>How much smaller each further bee is, and how far round the rim it sits from the one before,
+    /// in widths of the front bee's ink.</summary>
     private const double StruckBeeStackScale = 0.85;
+    private const double StruckBeeStackStep = 1.2;
 
     /// <summary>How far the struck bee's shadow trails it, as a fraction of the bee's own size, at full size.
     /// Pushed well out, so at full size the shadow clears the bee entirely
@@ -668,7 +679,7 @@ internal sealed class KabloomRenderer : IArcadeRenderer
                 // Only the bee you actually set off is angry, and only it leaves. The rest are simply
                 // revealed — making all of them buzz turns the failure screen into noise and buries the one
                 // cell the player needs to learn from.
-                // ⚠ The struck one is skipped here and drawn last of everything — see DrawStruckBee. It is
+                // ⚠ The struck one is skipped here and drawn in DrawOverBezel, over the scrim. It is
                 // the single cell the player has to read off a failed board, and this pass sits under the
                 // scrim and the card.
                 if (id == game.HitBeeCell) continue;
@@ -862,7 +873,7 @@ internal sealed class KabloomRenderer : IArcadeRenderer
             side = _pathSide[cell.Id] ??= SweepDown(outline, origin, scale, lift);
         else
             side = SweepDown(outline, origin, scale, lift);
-        dc.DrawGeometry(KabloomPalette.PetalSide, KabloomPalette.TilePen, side);
+        dc.DrawGeometry(KabloomPalette.PetalSide, KabloomPalette.PetalSidePen, side);
         dc.PushTransform(Math.Abs(lift - full) < 1e-6 ? LiftTransform(lift) : new TranslateTransform(0, -lift));
         DrawPetalFace(dc, path, outline, origin, scale, cell, fill, slot, shade, tint);
         dc.Pop();
@@ -1004,7 +1015,7 @@ internal sealed class KabloomRenderer : IArcadeRenderer
     /// and the cursor: they are the reward beat, and a stone the size of several cells passing behind a petal
     /// outline read as a bug. Resting gems are drawn in the petal pass instead (<see cref="DrawRestingGem"/>).</summary>
     private static void DrawDiamonds(DrawingContext dc, Point boardOrigin, double scale, Point fieldCenter,
-                                     double field, Kabloom game, double ppd)
+                                     double field, Kabloom game, Vec2[][] outlines)
     {
         Point target = DiamondCounterPoint(fieldCenter, field);
         for (int diamond = 0; diamond < game.Grid.CenterCaps.Count; diamond++)
@@ -1037,7 +1048,7 @@ internal sealed class KabloomRenderer : IArcadeRenderer
                 dc.DrawEllipse(null, KabloomPalette.CorePen(Math.Max(1, size * 0.10 * (1 - eased * 0.5))),
                     source, halo, halo);
                 dc.Pop();
-                DrawGem(dc, source, size * grown, spin, game.PresentationTime + diamond * 0.6);
+                DrawFreedGem(dc, game, outlines, diamond, boardOrigin, scale, source, grown, spin);
                 continue;
             }
 
@@ -1054,8 +1065,9 @@ internal sealed class KabloomRenderer : IArcadeRenderer
             // In flight it spins hard — the collection is the reward beat, and a stone tumbling as it flies is
             // the cheapest way to say so. ⚠ From zero, matching the still swell it hands off from: a per-gem
             // offset or a carried-over angle here would snap the stone round at the halfway point.
-            DrawGem(dc, position, size * shrink, progress * 540,
-                game.PresentationTime + diamond * 0.6);
+            // The walls flatten over the last stretch so the stone lands flat on the plate's flat gem.
+            double depth = 1 - Smooth(Math.Clamp((progress - 0.7) / 0.3, 0, 1));
+            DrawFreedGem(dc, game, outlines, diamond, boardOrigin, scale, position, shrink, progress * 540, depth);
 
             double trailT = Math.Max(0, t - 0.075);
             double trailOneMinus = 1 - trailT;
@@ -1064,6 +1076,44 @@ internal sealed class KabloomRenderer : IArcadeRenderer
                 trailOneMinus * trailOneMinus * source.Y + 2 * trailOneMinus * trailT * control.Y + trailT * trailT * target.Y);
             dc.DrawLine(KabloomPalette.CorePen(Math.Max(1, size * 0.16), round: true), trail, position);
         }
+    }
+
+    /// <summary>A freed gem as the same raised prism it was at rest — walls, edge and face — centred on
+    /// <paramref name="face"/>, scaled by <paramref name="grow"/> and turned by <paramref name="spin"/>
+    /// degrees, wall depth scaling with it and with <paramref name="depth"/> (0 = flat). At grow 1, spin 0 and the stone's own raised centre it matches
+    /// <see cref="DrawRestingGem"/> exactly, so the hand-off from rest has no seam.
+    ///
+    /// <para>Rebuilt per frame rather than cached: the walls depend on which edges face down the screen, which
+    /// changes as the stone turns. Only stones in flight pay it — a handful of small polygons each.</para></summary>
+    private static void DrawFreedGem(DrawingContext dc, Kabloom game, Vec2[][] outlines, int diamond,
+                                     Point boardOrigin, double scale, Point face, double grow, double spin,
+                                     double depth = 1)
+    {
+        double time = game.PresentationTime + diamond * 0.6;
+        if (Transitioning(game)
+            || NectarShape(game, outlines, diamond, boardOrigin, scale, out double turn) is null
+            || _nectarPts[diamond] is not { } rest)
+        {
+            DrawGem(dc, face, Math.Max(3.1, scale * 0.235) * grow, spin, time);
+            return;
+        }
+        double lift = KabloomTuning.TileThicknessInGridUnits * scale * grow * depth;
+        Point restCentre = Screen(game.Grid.CenterCaps[diamond].Center, boardOrigin, scale);
+        var foot = new Point(face.X, face.Y + lift);
+        double rad = spin * Math.PI / 180, cos = Math.Cos(rad), sin = Math.Sin(rad);
+        var pts = new List<Point>(rest.Length);
+        var top = new List<Point>(rest.Length);
+        foreach (var p in rest)
+        {
+            double dx = (p.X - restCentre.X) * grow, dy = (p.Y - restCentre.Y) * grow;
+            var q = new Point(foot.X + dx * cos - dy * sin, foot.Y + dx * sin + dy * cos);
+            pts.Add(q);
+            top.Add(new Point(q.X, q.Y - lift));
+        }
+        foreach (var wall in NectarWalls(pts, foot, lift))
+            dc.DrawGeometry(wall.Fill, KabloomPalette.GemSideSeam, wall.Shape);
+        dc.DrawGeometry(null, KabloomPalette.NectarEdge, SweepDown(pts, lift));
+        DrawNectar(dc, Polygon(top), turn + spin, time, spin);
     }
 
     /// <summary>Where the HUD plate's gem sits — the target a freed gem flies to. Written by <see cref="DrawHud"/>
@@ -1109,6 +1159,7 @@ internal sealed class KabloomRenderer : IArcadeRenderer
     private static double[] _nectarTurn = [];
     private static Geometry?[] _nectarSide = [];
     private static NectarWall[]?[] _nectarWalls = [];
+    private static Point[]?[] _nectarPts = [];
     private static bool[] _nectarBuilt = [];
 
     private readonly record struct NectarWall(Geometry Shape, Brush Fill);
@@ -1198,6 +1249,7 @@ internal sealed class KabloomRenderer : IArcadeRenderer
             _nectarTurn = new double[caps];
             _nectarSide = new Geometry?[caps];
             _nectarWalls = new NectarWall[]?[caps];
+            _nectarPts = new Point[]?[caps];
             _nectarBuilt = new bool[caps];
         }
         if (_nectarBuilt[cap]) { turn = _nectarTurn[cap]; return _nectarShape[cap]; }
@@ -1244,6 +1296,7 @@ internal sealed class KabloomRenderer : IArcadeRenderer
         _nectarShape[cap] = built;
         _nectarSide[cap] = SweepDown(pts, KabloomTuning.TileThicknessInGridUnits * scale);
         _nectarWalls[cap] = NectarWalls(pts, centre, KabloomTuning.TileThicknessInGridUnits * scale);
+        _nectarPts[cap] = [.. pts];
         _nectarTurn[cap] = turn;
         _nectarBuilt[cap] = true;
         return built;
@@ -1262,7 +1315,7 @@ internal sealed class KabloomRenderer : IArcadeRenderer
     /// <para>⚠ Neither turning nor breathing. A shape cut from its hole cannot rotate without ceasing to
     /// match it, and a bed of them pulsing was motion on the one part of the board that never changes. Motion
     /// is kept for the moment a gem is freed, where it means something.</para></summary>
-    private static void DrawNectar(DrawingContext dc, Geometry shape, double turn, double time)
+    private static void DrawNectar(DrawingContext dc, Geometry shape, double turn, double time, double spin = 0)
     {
         dc.DrawGeometry(KabloomPalette.Diamond, KabloomPalette.NectarEdge, shape);
         if (ArcadeSprites.Frame(ArcadeSprites.Slot.KabloomGem) is { } art)
@@ -1286,7 +1339,7 @@ internal sealed class KabloomRenderer : IArcadeRenderer
         {
             var b = shape.Bounds;
             DrawGem(dc, new Point(b.X + b.Width / 2, b.Y + b.Height / 2),
-                    Math.Min(b.Width, b.Height) / 2, 0, time);
+                    Math.Min(b.Width, b.Height) / 2, spin, time);
         }
         dc.DrawGeometry(null, KabloomPalette.NectarEdge, shape);
     }
@@ -1442,114 +1495,21 @@ internal sealed class KabloomRenderer : IArcadeRenderer
         ArcadeChrome.DrawInkCentered(dc, text, new Point(c.X, top + h / 2), glyphs);
     }
 
-    /// <summary>A shout in poster word art (<see cref="KabloomPalette"/> ▸ the STUNG shout), centred on
-    /// <paramref name="cx"/> with its face's top at <paramref name="top"/>, then pulled back if its near edge
-    /// would pass <paramref name="nearLimit"/> on the <paramref name="beeSide"/> (+1 right, −1 left). The speed
-    /// lines trail off the far side only. Returns the height it takes, extrusion included.
-    ///
-    /// <para>Built once per string, size, side and DPI into a frozen drawing: the extrusion outline is a union
-    /// of a dozen offset copies of the glyphs, far too much geometry work to repeat each frame.</para></summary>
-    private static double DrawShout(DrawingContext dc, double cx, double top, string message, double size,
-                                    double ppd, int beeSide, double nearLimit)
+    /// <summary>An end-card headline in <see cref="ArcadeChrome.Poster"/> lettering, centred on
+    /// <paramref name="cx"/> with its face's top at <paramref name="top"/>.
+    /// Returns the height it takes, extrusion included.</summary>
+    private static double DrawPosterCard(DrawingContext dc, double cx, double top, string message, double size,
+                                         Color face, Color? shade, double ppd, double maxWidth)
     {
-        var key = (message, Math.Round(size, 2), ppd, beeSide);
-        if (_shoutKey != key || _shout is null)
-        {
-            _shout = BuildShout(message, size, ppd, -beeSide, out _shoutFace, out _shoutBody);
-            _shoutKey = key;
-        }
-        if (_shoutFace.IsEmpty) return 0;
-        double x = cx - _shoutFace.X - _shoutFace.Width / 2, y = top - _shoutFace.Y;
-        if (beeSide > 0) x = Math.Min(x, nearLimit - _shoutBody.Right);
-        else if (beeSide < 0) x = Math.Max(x, nearLimit - _shoutBody.Left);
-        dc.PushTransform(new TranslateTransform(x, y));
-        dc.DrawDrawing(_shout);
-        dc.Pop();
-        return _shoutBody.Bottom - _shoutFace.Y;
+        ArcadeChrome.PosterText poster = ArcadeChrome.Poster(message, size, face, ppd, shade, maxWidth);
+        if (poster.Face.IsEmpty) return 0;
+        double x = cx - poster.Face.X - poster.Face.Width / 2, y = top - poster.Face.Y;
+        ArcadeChrome.DrawPoster(dc, poster, new Point(x, y));
+        return poster.Body.Bottom - poster.Face.Y;
     }
-
-    private static (string, double, double, int) _shoutKey;
-    private static Drawing? _shout;
-    private static Rect _shoutFace, _shoutBody;
-
-    /// <param name="trailSide">Which end the speed lines trail off: +1 right, −1 left.</param>
-    /// <param name="body">The face and extrusion's bounds, speed lines excluded — what must clear the bee.</param>
-    private static Drawing BuildShout(string message, double size, double ppd, int trailSide,
-                                      out Rect face, out Rect body)
-    {
-        var text = new FormattedText(message, CultureInfo.InvariantCulture, System.Windows.FlowDirection.LeftToRight,
-                                     ShoutFace, size, Brushes.Black, ppd);
-        Geometry glyphs = text.BuildGeometry(new Point());
-        face = body = glyphs.Bounds;
-        var group = new DrawingGroup();
-        if (face.IsEmpty) { group.Freeze(); return group; }
-
-        double depth = size * 0.16;         // extrusion, down-left
-        Vector dir = new(-0.55, 1.0);
-
-        // The extrusion's footprint: the glyphs swept along `dir` by `depth`, as a union of copies about a
-        // pixel apart. Only its hatching is drawn — the lines alone carry the depth.
-        int steps = Math.Max(2, (int)Math.Ceiling(depth));
-        Geometry block = glyphs;
-        for (int s = 1; s <= steps; s++)
-        {
-            var copy = glyphs.Clone();
-            copy.Transform = new TranslateTransform(dir.X * depth * s / steps, dir.Y * depth * s / steps);
-            block = Geometry.Combine(block, copy, GeometryCombineMode.Union, null);
-        }
-        block.Freeze();
-        body = block.Bounds;
-
-        using (var g = group.Open())
-        {
-            Pen Flat(Brush b, double w)
-            {
-                var p = new Pen(b, w) { LineJoin = PenLineJoin.Miter };
-                p.Freeze();
-                return p;
-            }
-
-            // Speed lines trailing off the far end, behind everything: parallel rules of staggered length at
-            // the word's height.
-            var rule = Flat(KabloomPalette.ShoutShade, Math.Max(1, size * 0.028));
-            double pitch = size * 0.085, reach = size * 0.9, inset = size * 0.25;
-            int n = 0;
-            for (double y = face.Top + pitch * 0.5; y < face.Bottom + depth; y += pitch, n++)
-            {
-                double jag = (n * 0.618 % 1) * reach * 0.45;
-                if (trailSide < 0)
-                    g.DrawLine(rule, new Point(body.Left - reach + jag, y), new Point(face.Left + inset, y));
-                else
-                    g.DrawLine(rule, new Point(face.Right - inset, y), new Point(body.Right + reach - jag, y));
-            }
-
-            // The extrusion: diagonal hatching clipped to the footprint, and nothing else.
-            g.PushClip(block);
-            Rect b = block.Bounds;
-            double hatchPitch = Math.Max(2, size * 0.045);
-            var hatch = Flat(KabloomPalette.ShoutShade, Math.Max(0.8, size * 0.018));
-            for (double x = b.Left - b.Height; x < b.Right; x += hatchPitch)
-                g.DrawLine(hatch, new Point(x, b.Bottom), new Point(x + b.Height, b.Top));
-            g.Pop();
-
-            // The face: a thin cream rule parting it from the hatching, then the solid colour.
-            g.DrawGeometry(null, Flat(KabloomPalette.ShoutInline, size * 0.06), glyphs);
-            g.DrawGeometry(KabloomPalette.ShoutFace, null, glyphs);
-        }
-        group.Freeze();
-        return group;
-    }
-
-    /// <summary>The shout's face: a geometric sans in bold, falling back through Windows' own heavy faces.
-    /// A comma list, so a machine missing one lands on the next rather than on a default.</summary>
-    private static Typeface? _shoutTypeface;
-    private static Typeface ShoutFace => _shoutTypeface ??= new Typeface(
-        new FontFamily("Century Gothic, Futura, Segoe UI"),
-        FontStyles.Normal, FontWeights.Bold, FontStretches.Normal);
-
     /// <summary>Text that overlays the playfield sits on a contrasting plate.
     ///
-    /// <para>⚠ Every string drawn over the crop goes through here, bar the STUNG shout (<see cref="DrawShout"/>),
+    /// <para>⚠ Every string drawn over the crop goes through here, bar the end-card headline (<see cref="DrawPosterCard"/>),
     /// which lands on the failure scrim and carries its own contrast. The crop's tiles run from near-white
     /// covered petals to a near-black revealed face, so a bare ink can be crisp on one board and almost gone
     /// on the next, and the growth notices land during the level flip when the ground under them is actively
@@ -1629,6 +1589,19 @@ internal sealed class KabloomRenderer : IArcadeRenderer
             DrawPlaque(dc, c.X, y, Loc.T(UiText.Arcade.BeesIncrease), size, KabloomPalette.Warning, field, ppd, alpha);
     }
 
+    private static void DrawIntro(DrawingContext dc, Point c, double field, double ppd)
+    {
+        dc.DrawEllipse(ArcadePalette.CardScrim, null, c, field, field);
+        ArcadeChrome.DrawPosterLine(dc, "KABLOOM", ArcadeChrome.Ui(Math.Max(16, field * 0.12)), KabloomPalette.TitleFace,
+            c.X, c.Y - field * 0.46, ppd, field * 1.15, rule: Colors.White);
+        ArcadeChrome.DrawCentered(dc, $"{ControllerButtons.Text(PadButton.Triangle)}  {Loc.T(UiText.Arcade.HowToPlay)}",
+            ArcadeChrome.Ui(Math.Max(9, field * 0.052)), KabloomPalette.Success,
+            c.X, c.Y - field * 0.08, ppd, field * 1.6);
+        ArcadeChrome.DrawCentered(dc, $"{ControllerButtons.Text(PadButton.Cross)}  {Loc.T(UiText.Arcade.Begin)}",
+            ArcadeChrome.Ui(Math.Max(9, field * 0.048)), Brushes.White,
+            c.X, c.Y + field * 0.16, ppd, field * 1.5);
+    }
+
     private static void DrawStage(DrawingContext dc, Point c, double field, Kabloom game, double ppd)
     {
         if (game.Phase == Kabloom.Stage.AwaitingFirstReveal && game.CapacityNotice > 0)
@@ -1687,30 +1660,29 @@ internal sealed class KabloomRenderer : IArcadeRenderer
             // goes quiet, and a full-field wash landing in one frame reads as a glitch over a board that was
             // just moving. Clocked off the sim, so pause and freeze hold it.
             dc.PushOpacity(Smooth(Math.Clamp(game.OutcomeQuietSeconds / StungScrimFadeSeconds, 0, 1)));
-            dc.DrawEllipse(KabloomPalette.Scrim, null, c, field, field);
+            dc.DrawEllipse(ArcadePalette.CardScrim, null, c, field, field);
             dc.Pop();
         }
     }
 
     /// <summary>The outcome card's words, drawn over the struck bee: the scrim under it is part of
     /// <see cref="DrawStage"/>, so the bee sits between the wash and the text and the text is never hidden
-    /// behind the insect parked beside it. Positions are shared with the scrim branch above.</summary>
+    /// behind the insect crossing the board. Centred on the disc, as every game's end card is.</summary>
     private static void DrawOutcomeCard(DrawingContext dc, Point c, double field, Kabloom game, double ppd)
     {
         if (game.PresentationActive || game.Phase is not (Kabloom.Stage.Failed or Kabloom.Stage.CampaignComplete)) return;
         {
             bool failed = game.Phase == Kabloom.Stage.Failed;
-            // Both lines go through the plaque routine, not ArcadeChrome.DrawCentered: the field-wide Scrim
-            // still shows the board through it, and every piece of text drawn over the crop sits on its own
-            // opaque plate.
-            // Stepped away from the parked bee on a failed board, so the two are not fighting for the middle.
-            double cx = c.X - (failed ? StruckBeeSide * field * StungCardShift : 0);
+            // No plates: the card's dark wash carries the contrast, and the prompts match the other games' end
+            // cards (white, unplated).
+            double cx = c.X;
             double y = c.Y - field * 0.30;
             y += (failed
-                    ? DrawShout(dc, cx, y, Loc.T(UiText.Arcade.Stung), ArcadeChrome.Ui(Math.Max(16, field * 0.12)), ppd,
-                                StruckBeeSide, c.X + StruckBeeSide * field * StungShoutReach(game))
-                    : DrawPlaque(dc, cx, y, Loc.T(UiText.Arcade.YouWin),
-                        ArcadeChrome.Ui(Math.Max(14, field * 0.105)), KabloomPalette.Success, field, ppd))
+                    ? DrawPosterCard(dc, cx, y, Loc.T(UiText.Arcade.Stung), ArcadeChrome.Ui(Math.Max(16, field * 0.12)),
+                                     ArcadeChrome.ColourOf(KabloomPalette.FailureInk), KabloomPalette.StungShade, ppd,
+                                     field * 1.15)
+                    : DrawPosterCard(dc, cx, y, Loc.T(UiText.Arcade.YouWin), ArcadeChrome.Ui(Math.Max(14, field * 0.105)),
+                                     ArcadeChrome.ColourOf(KabloomPalette.Success), null, ppd, field * 1.15))
                  + field * 0.05;
             // ⚠ The outcome word lands immediately; the button prompts wait for the bee to finish flying and
             // settle. The bee is the explanation for what just happened, and a prompt over it invites the
@@ -1718,12 +1690,12 @@ internal sealed class KabloomRenderer : IArcadeRenderer
             // OutcomePromptsReady, which also gates the input — so the card never shows a button the board
             // will not obey, nor obeys one it has not offered.
             if (!game.OutcomePromptsReady) return;
-            y += DrawPlaque(dc, cx, y, failed ? $"{Cross}  {Loc.T(UiText.Arcade.FallBack)}" : $"{Square}  {Loc.T(UiText.Arcade.ReplayFinalField)}",
-                ArcadeChrome.Ui(Math.Max(8, field * 0.044)), KabloomPalette.FocusIvory, field, ppd) + field * 0.03;
+            y += ArcadeChrome.DrawCentered(dc, failed ? $"{Cross}  {Loc.T(UiText.Arcade.FallBack)}" : $"{Square}  {Loc.T(UiText.Arcade.ReplayFinalField)}",
+                ArcadeChrome.Ui(Math.Max(9, field * 0.047)), Brushes.White, cx, y, ppd) + field * 0.06;
             // The way out, on every outcome card: the same ○ that leaves the arcade from anywhere else. It
             // keeps working while this prompt is hidden — that door is the host's and is never barred.
-            DrawPlaque(dc, cx, y, $"{Circle}  {Loc.T(UiText.Arcade.ExitGame)}",
-                ArcadeChrome.Ui(Math.Max(8, field * 0.044)), KabloomPalette.FocusIvory, field, ppd);
+            ArcadeChrome.DrawCentered(dc, $"{Circle}  {Loc.T(UiText.Arcade.ExitGame)}",
+                ArcadeChrome.Ui(Math.Max(9, field * 0.047)), Brushes.White, cx, y, ppd);
         }
     }
 
