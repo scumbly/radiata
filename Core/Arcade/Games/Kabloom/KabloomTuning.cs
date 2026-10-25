@@ -19,6 +19,16 @@ public static class KabloomTuning
     /// <summary>How far out the reticle may travel, as a fraction of the board radius. Slightly over 1 so the
     /// outermost ring of cells is comfortably reachable rather than needing a pixel-perfect stop.</summary>
     public static double PointerReachFraction = 1.06;
+    /// <summary>How much wider the board's bottom edge is than its top, as a share of width: each row's x is scaled
+    /// about the board's middle by 1 + this × its depth down the board (0 at the top, 1 at the bottom). A fixed
+    /// perspective, so it stays under Reduce Motion.</summary>
+    public static double BoardKeystone = 0.08;
+    /// <summary>How far each edge of the board slides at full offset, in board radii: the bottom (near) edge
+    /// opposite the reticle's side, the top (far) edge toward it, rows between in proportion, the middle row still.
+    /// The edges move apart by twice this, so keep it small. The renderer drops it under Reduce Motion.</summary>
+    public static double BoardParallaxSlide = 0.02;
+    /// <summary>Time constant of the parallax offset's glide toward the reticle, in seconds.</summary>
+    public static double BoardParallaxSeconds = 0.25;
 
 
     /// <summary>Laps per second the two focus sparks make around the selected cell. Keep it slow — this is
@@ -64,14 +74,12 @@ public static class KabloomTuning
     public static double BeeWiggleAmplitude = 0.34;
     public static double BeeWiggleWaves = 3.6;
     public static double DiamondReleaseDelaySeconds = 0.07;
-    /// <summary>How long a freed gem spends spinning up and swelling before it flies to the counter.</summary>
-    public static double DiamondSwellSeconds = 1.0;
-    /// <summary>Peak size of a gem at the end of its swell, as a multiple of its resting size. Kept well under
-    /// a size that spans several cells, which reads as a drawing error rather than as a reward.
-    /// ⚠ The flight's shrink starts from this number too (the gem hands off from the swell at exactly the
-    /// size it ended on), so the two stay in step from the one knob; don't give the flight its own.</summary>
-    public static double DiamondSwellScale = 2.7;
+    /// <summary>How long a freed gem takes to spin from its opening into the score card.</summary>
     public static double DiamondFlightSeconds = 0.72;
+    /// <summary>How long the score plate's gem takes to settle back after bulging to take in a counted gem.</summary>
+    public static double DiamondPulseSeconds = 0.3;
+    /// <summary>How much larger the score plate's gem swells at the instant a gem is counted, as a share of its size.</summary>
+    public static double DiamondPulseScale = 0.35;
     /// <summary>How fast a resting gem turns, in degrees per second. Keep it slow — the glitter comes from
     /// facets crossing a fixed light as the stone turns, so the flashes don't need fast rotation.</summary>
     public static double GemDegreesPerSecond = 16.0;

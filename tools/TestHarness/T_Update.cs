@@ -106,9 +106,62 @@ internal static class T_Update
         H.Check("truncated size within the 64 KB budget",
                 Encoding.UTF8.GetByteCount(truncated) <= CrashReport.MaxBytes,
                 $"{Encoding.UTF8.GetByteCount(truncated)} bytes");
+
+        RunSignature();
     }
 
     private const string Sha = "aabb00112233445566778899aabbccddeeff00112233445566778899aabbccdd";
+    private const string GoodSigner = "CN=Jesse Tarter-Holden, O=Jesse Tarter-Holden, L=Portland, S=or, C=US";
+    private const string GoodRoot = "CN=Microsoft Identity Verification Root Certificate Authority 2020, O=Microsoft Corporation, C=US";
+
+    private static void Sig(string what, bool expect, bool trust, string signer, string root)
+    {
+        bool got = UpdateSignature.Accept(trust, signer, root, out var why);
+        H.Check($"signature: {what}", got == expect, why);
+    }
+
+    private static void RunSignature()
+    {
+        H.Group("Update installer signature decision (Core) + live verifier");
+        Sig("valid + right subject + right root accepted", true, true, GoodSigner, GoodRoot);
+        Sig("untrusted rejected", false, false, GoodSigner, GoodRoot);
+        Sig("valid + wrong CN rejected", false, true, "CN=Someone Else, O=Jesse Tarter-Holden, C=US", GoodRoot);
+        Sig("valid + wrong O rejected", false, true, "CN=Jesse Tarter-Holden, O=Someone Else, C=US", GoodRoot);
+        Sig("lookalike CN suffix rejected", false, true, "CN=Jesse Tarter-Holden Evil, O=Jesse Tarter-Holden, C=US", GoodRoot);
+        Sig("lookalike CN prefix rejected", false, true, "CN=Not Jesse Tarter-Holden, O=Jesse Tarter-Holden, C=US", GoodRoot);
+        Sig("name smuggled into another RDN rejected", false, true, "CN=Evil, OU=CN=Jesse Tarter-Holden, O=Jesse Tarter-Holden", GoodRoot);
+        Sig("name smuggled inside a quoted value rejected", false, true, "CN=\"Evil, CN=Jesse Tarter-Holden\", O=Jesse Tarter-Holden", GoodRoot);
+        Sig("duplicate CN rejected", false, true, "CN=Jesse Tarter-Holden, CN=Evil, O=Jesse Tarter-Holden", GoodRoot);
+        Sig("missing subject rejected", false, true, null, GoodRoot);
+        Sig("garbage subject rejected", false, true, "not a name", GoodRoot);
+        Sig("wrong chain root rejected", false, true, GoodSigner, "CN=Some Other Root, O=Evil");
+        Sig("missing chain root rejected", false, true, GoodSigner, null);
+        Sig("lookalike root rejected", false, true, GoodSigner, "CN=Microsoft Identity Verification Root Certificate Authority 2020 Evil");
+
+        string dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "radiata-sigtest-" + Guid.NewGuid().ToString("N"));
+        System.IO.Directory.CreateDirectory(dir);
+        try
+        {
+            string src = System.IO.Path.Combine(AppContext.BaseDirectory, "TestHarness.dll");
+            string pe = System.IO.Path.Combine(dir, "unsigned.exe");
+            System.IO.File.Copy(src, pe);
+            bool ok = UpdateSignatureVerifier.Verify(pe, out var why);
+            H.Check("live: an unsigned PE is rejected by the real verifier", !ok, why);
+            string junk = System.IO.Path.Combine(dir, "junk.exe");
+            System.IO.File.WriteAllText(junk, "MZ not really");
+            H.Check("live: a non-PE file is rejected by the real verifier", !UpdateSignatureVerifier.Verify(junk, out why), why);
+            H.Check("live: a missing file is rejected without throwing",
+                    !UpdateSignatureVerifier.Verify(System.IO.Path.Combine(dir, "nope.exe"), out why), why);
+
+            // The positive path needs a real release setup exe (signed in CI, never on this box), so it runs only
+            // when one is supplied: RADIATA_SIGNED_SETUP=<path to a downloaded Radiata-*-setup.exe>.
+            if (Environment.GetEnvironmentVariable("RADIATA_SIGNED_SETUP") is { Length: > 0 } signed)
+                H.Check("live: a signed release setup exe is accepted by the real verifier",
+                        UpdateSignatureVerifier.Verify(signed, out why), why);
+        }
+        finally { try { System.IO.Directory.Delete(dir, true); } catch { } }
+    }
+
     private static string Fill(string template) => template.Replace("%SHA%", Sha);
 
     private static void Rejects(string what, string json)

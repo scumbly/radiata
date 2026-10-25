@@ -92,7 +92,7 @@ internal static class UpdateService
     private static HttpClient Http => _http ??= new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
 
     private static DispatcherTimer? _startupTimer, _dailyTimer;
-    private static int _checking;              // one check in flight at a time
+    private static Task<UpdateCheckStatus>? _checkInFlight;   // one check at a time; a concurrent caller shares its result
     private static string? _promptedVersion;   // balloon shown for this version already (per session)
     private static UpdateWindow? _window;
 
@@ -123,9 +123,10 @@ internal static class UpdateService
     /// <summary>One feed check. Failures are silent by contract (trace only) — the manual caller
     /// shows its own inline "check failed" from the returned status. Automatic checks honour the
     /// skip list; the manual check bypasses it (it still reports the version as available).</summary>
-    public static async Task<UpdateCheckStatus> CheckAsync(bool manual)
+    public static Task<UpdateCheckStatus> CheckAsync(bool manual) => _checkInFlight ??= CheckOnceAsync(manual);
+
+    private static async Task<UpdateCheckStatus> CheckOnceAsync(bool manual)
     {
-        if (Interlocked.Exchange(ref _checking, 1) != 0) return UpdateCheckStatus.Failed;
         try
         {
             string body;
@@ -168,7 +169,7 @@ internal static class UpdateService
             if (!manual) MaybePromptFor(feed);
             return UpdateCheckStatus.UpdateAvailable;
         }
-        finally { Interlocked.Exchange(ref _checking, 0); }
+        finally { _checkInFlight = null; }
     }
 
     /// <summary>Automatic-path prompt gate: honour the skip list (clearing it when the feed moved
@@ -236,8 +237,9 @@ internal static class UpdateService
     public static bool WasDeferred(string version) =>
         GetSystem?.Invoke().UpdateDeferredVersion == version;
 
-    /// <summary>Download the setup exe to %TEMP%\Radiata-Update and verify its SHA-256. Returns the
-    /// verified path, or null + reason. A hash mismatch DELETES the file — a file that failed
+    /// <summary>Download the setup exe to %TEMP%\Radiata-Update, verify its SHA-256, then its Authenticode
+    /// signature (<see cref="UpdateSignatureVerifier"/>). Returns the
+    /// verified path, or null + reason. A hash or signature failure DELETES the file — a file that failed
     /// verification must not exist to be run by anything later.</summary>
     public static async Task<(string? path, string? error)> DownloadAsync(
         UpdateFeed feed, IProgress<double> progress, CancellationToken ct)
@@ -291,6 +293,16 @@ internal static class UpdateService
                 return (null, "The download didn't match its checksum, so it was discarded. Try again later.");
             }
 
+            if (SignatureExempt(feed.Url))
+                Trace.WriteLine("[Update] DEBUG loopback download — Authenticode check skipped");
+            else if (!UpdateSignatureVerifier.Verify(path, out var sigReason))
+            {
+                TryDelete(path);
+                Trace.WriteLine($"[Update] SIGNATURE REJECTED — file deleted ({sigReason})");
+                return (null, Loc.T(UiText.Dialogs.UpdateSignatureFailed));
+            }
+            else Trace.WriteLine($"[Update] signature accepted ({sigReason})");
+
             Trace.WriteLine($"[Update] downloaded + verified {path} ({read} bytes)");
             return (path, null);
         }
@@ -309,6 +321,22 @@ internal static class UpdateService
             Trace.WriteLine($"[Update] download failed: {ex.Message}");
             return (null, "The download failed. Try again later.");
         }
+    }
+
+    /// <summary>Whether the Authenticode requirement is waived for this download: only the DEBUG-build
+    /// loopback http URL (the one <see cref="UpdateFeed.IsTrustedUrl"/> admits only in DEBUG), so local
+    /// test installers need not be signed. <c>RADIATA_DEV_REQUIRE_SIGNATURE=1</c> forces the check back on
+    /// for that path. A Release build always requires the signature.</summary>
+    private static bool SignatureExempt(string url)
+    {
+#if DEBUG
+        if (Environment.GetEnvironmentVariable("RADIATA_DEV_REQUIRE_SIGNATURE") == "1") return false;
+        return Uri.TryCreate(url, UriKind.Absolute, out var u)
+               && string.Equals(u.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)
+               && u.Host == "127.0.0.1";
+#else
+        return false;
+#endif
     }
 
     /// <summary>Launch the VERIFIED setup exe with the silent-update arguments

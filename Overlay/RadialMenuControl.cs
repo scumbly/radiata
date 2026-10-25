@@ -872,16 +872,17 @@ public sealed partial class RadialMenuControl : FrameworkElement
     // boxes are stable per wheel layout, so this is a handful of bakes per session, like RimMask.
     private const double ShadowTapSpreadPx = 2.0;   // max |dx|,|dy| in ShadowTaps
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ImageSource,
-        Dictionary<(Brush brush, int w, int h), BitmapSource>> ShapeShadowCache = new();
+        Dictionary<(Brush brush, int w, int h, double ss), BitmapSource>> ShapeShadowCache = new();
 
     private BitmapSource ShapeShadowBake(ImageSource img, Brush shadow, double rectW, double rectH)
     {
         var perImage = ShapeShadowCache.GetOrCreateValue(img);
-        var key = (shadow, (int)Math.Round(rectW), (int)Math.Round(rectH));
-        if (perImage.TryGetValue(key, out var cached)) return cached;
         // Supersample at the display scale (min 1.5×) so the blit is indistinguishable from the live
-        // masked draws it replaces — a shadow this soft hides any residual resampling.
+        // masked draws it replaces — a shadow this soft hides any residual resampling. Part of the key:
+        // the cache is static, so a second DPI must not reuse the first's bake.
         double ss = Math.Max(1.5, VisualTreeHelper.GetDpi(this).DpiScaleX);
+        var key = (shadow, (int)Math.Round(rectW), (int)Math.Round(rectH), ss);
+        if (perImage.TryGetValue(key, out var cached)) return cached;
         double cw = rectW + ShadowTapSpreadPx * 2, ch = rectH + ShadowTapSpreadPx * 2;
         var mask = BrushOf(img);
         var dv = new DrawingVisual();
@@ -3582,7 +3583,7 @@ public sealed partial class RadialMenuControl : FrameworkElement
         var stitch = StitchPath(rect.Width, rect.Height, notch);
         // Two passes: an opaque WHITE copy 1px lower (the emboss highlight), then the 55% gold stitch over
         // it. Alphas live in the pens, so the translucent gold lets the white read through where they
-        // overlap — that wash IS the effect here, not the muddying a shared opacity group used to prevent.
+        // overlap — that wash IS the effect here, not the muddying a shared opacity group would prevent.
         dc.PushTransform(new TranslateTransform(rect.X, rect.Y + KawaiiStitchUnderDy));
         dc.DrawGeometry(null, KawaiiStitchHighlight, stitch);
         dc.Pop();
@@ -4641,8 +4642,10 @@ public sealed partial class RadialMenuControl : FrameworkElement
             double fadeIn = Math.Clamp((ms - delayMs) / (SparkFxFadeInFrac * lifeMs), 0, 1);
             if (fadeIn <= 0) continue;   // still in its invisible opening beat
             dc.PushOpacity(fadeIn * Math.Clamp(1 - lt * lt, 0, 1));
-            dc.DrawLine(new Pen(g, p.Width) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round },
-                        tail, head);
+            // The gradient is absolute-mapped to this frame's tail/head, so the pen can't be cached across frames.
+            var pen = new Pen(g, p.Width) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round };
+            pen.Freeze();
+            dc.DrawLine(pen, tail, head);
             dc.Pop();
         }
     }

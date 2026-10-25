@@ -7,7 +7,7 @@ namespace ControllerWheel;
 /// <summary>The boss-block encounter's drawing: the block falling in, the ring and dust of its landing, the
 /// cracks each bomb opens, and the fragments of its break. Read-only over <see cref="ConnateBossBlock"/>.
 ///
-/// <para>⚠ Gold is reserved for value on its way to the counter. The block's crystals are the owner-approved
+/// <para>⚠ Gold is reserved for value on its way to the counter. The block's crystals are the deliberate
 /// exception, and only the crystals: the ring, the dust, the cracks and the flash are white, ink and sage.</para></summary>
 internal sealed partial class ConnateRenderer
 {
@@ -102,7 +102,7 @@ internal sealed partial class ConnateRenderer
         }
     }
 
-    /// <summary>The block itself: the owner sprite when one is loaded, else the garbage lump with its crystals.
+    /// <summary>The block itself: the authored sprite when one is loaded, else the garbage lump with its crystals.
     /// Shared by the board and the how-to card, so the card shows the thing the board draws.</summary>
     private static void DrawBossBody(DrawingContext dc, Point centre, double radius, double rotation, double time)
     {

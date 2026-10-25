@@ -365,7 +365,7 @@ internal static class T_Arcade
 
     /// <summary>The picker's steering state machine (<see cref="ArcadeCarouselNav"/>): one step per flick,
     /// auto-repeat while held, hysteresis on release, d-pad level identical, vertical input ignored — the
-    /// contract docs/ARCADE.md ▸ The picker states. Pure Core, so it runs here without a controller.</summary>
+    /// contract docs/ARCADE.md ▸ The picker. Pure Core, so it runs here without a controller.</summary>
     private static void CarouselSteering()
     {
         H.Group("Arcade — picker steering");

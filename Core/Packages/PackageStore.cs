@@ -141,8 +141,8 @@ public static class PackageStore
             {
                 // Arcade: a script-game package. Consent identity is the whole-folder hash (same as
                 // materials) — a script swap must re-prompt exactly like a manifest edit. The script
-                // itself is never read here; its text is read at session start and shipped over the
-                // pipe to the jailed helper. See docs/PACKAGES.md ▸ the Arcade engine milestone.
+                // itself is never executed here; the bytes the hash covered are kept on the manifest
+                // (EntryText) and shipped over the pipe to the jailed helper at session start. See docs/PACKAGES.md ▸ the Arcade engine milestone.
                 var manifest = Path.Combine(sub, ScriptGameManifest.ManifestFileName);
                 if (!File.Exists(manifest))
                     return new(kind, folder, sub, "", null, $"no {ScriptGameManifest.ManifestFileName}");
@@ -151,7 +151,8 @@ public static class PackageStore
                 if (bytes.Length > 64 * 1024)
                     return new(kind, folder, sub, "", null, "manifest over 64 KB");
 
-                if (HashFolder(sub, out var hash) is { } capError)
+                var scripts = new Dictionary<string, byte[]>();
+                if (HashFolder(sub, out var hash, scripts) is { } capError)
                     return new(kind, folder, sub, "", null, capError);
 
                 var json = System.Text.Encoding.UTF8.GetString(bytes);
@@ -160,6 +161,8 @@ public static class PackageStore
                 if (spec is not null)
                 {
                     spec = spec with { DirPath = sub };
+                    if (scripts.TryGetValue(spec.EntryFile.ToLowerInvariant(), out var entryBytes))
+                        spec = spec with { EntryText = System.Text.Encoding.UTF8.GetString(entryBytes) };
                     var entry = Path.Combine(sub, spec.EntryFile);
                     if (!File.Exists(entry))
                     { error = $"entry: {spec.EntryFile} not found in the package folder"; spec = null; }
@@ -181,7 +184,12 @@ public static class PackageStore
 
     /// <summary>Whole-folder content hash + shape caps. Returns an error string (hash "" is then never
     /// consentable), or null with the hex hash. Deterministic: files sorted by lowercased name.</summary>
-    private static string? HashFolder(string dir, out string hash)
+    private static string? HashFolder(string dir, out string hash) => HashFolder(dir, out hash, null);
+
+    /// <summary>As above; when <paramref name="scripts"/> is given it receives the exact bytes hashed for each
+    /// entry-sized <c>.js</c> file (keyed by lowercased name), so the consented text and the consented hash
+    /// come from one read.</summary>
+    private static string? HashFolder(string dir, out string hash, Dictionary<string, byte[]>? scripts)
     {
         hash = "";
         var files = Directory.GetFiles(dir, "*", SearchOption.TopDirectoryOnly);
@@ -197,7 +205,11 @@ public static class PackageStore
             total += info.Length;
             if (total > 16 * 1024 * 1024) return "package folder is over 16 MB";
             sha.AppendData(System.Text.Encoding.UTF8.GetBytes(info.Name.ToLowerInvariant() + "\n"));
-            sha.AppendData(File.ReadAllBytes(f));
+            var data = File.ReadAllBytes(f);
+            if (scripts is not null && info.Name.EndsWith(".js", StringComparison.OrdinalIgnoreCase)
+                && data.Length <= ScriptGameManifest.MaxEntryFileBytes)
+                scripts[info.Name.ToLowerInvariant()] = data;
+            sha.AppendData(data);
         }
         hash = System.Convert.ToHexString(sha.GetHashAndReset());
         return null;

@@ -188,9 +188,17 @@ public sealed class UpdateWindow : Window
 
         var (path, error) = await UpdateService.DownloadAsync(_feed, progress, _cts.Token);
 
+        bool cancelled = _cts.IsCancellationRequested;   // Cancel or window close landed as the download finished
         _downloading = false;
         _cts.Dispose();
         _cts = null;
+
+        if (path is not null && cancelled)
+        {
+            try { System.IO.File.Delete(path); } catch (Exception ex) { Trace.WriteLine($"[Update] cancelled download cleanup: {ex.Message}"); }
+            path = null;
+            error = null;
+        }
 
         if (path is null)
         {

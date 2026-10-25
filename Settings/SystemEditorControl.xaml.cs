@@ -14,7 +14,7 @@ namespace ControllerWheel;
 /// Narration — Customize writes none of them) and
 /// System — Backup/Restore, Start-with-Windows, a hidden-but-wired Practice-mode checkbox (see
 /// <see cref="PracticeSettingsBox"/>'s Visibility), a Troubleshooting dropdown (first-run setup /
-/// install-repair drivers / HID Diagnostics / Controller Setup / email log / a divider / reset-all / wipe /
+/// install-repair drivers / HID Diagnostics / email log / a divider / reset-all / wipe /
 /// uninstall), Updates (auto-check toggle, manual check with inline result, the persistent
 /// version-available line, and the crash-report-prompt toggle — mechanics in UpdateService/CrashReporter),
 /// and Quit Radiata.
@@ -838,6 +838,11 @@ public partial class SystemEditorControl : UserControl
     private void StartWithWindowsBox_CheckedChanged(object sender, RoutedEventArgs e)
     {
         if (_loading) return;
-        StartupManager.SetEnabled(StartWithWindowsBox.IsChecked == true);
+        bool want = StartWithWindowsBox.IsChecked == true;
+        if (StartupManager.SetEnabled(want)) return;
+        _loading = true;
+        StartWithWindowsBox.IsChecked = !want;
+        _loading = false;
+        ShowUpdateResult(Loc.T(UiText.Advanced.StartupFailed), failed: true);
     }
 }

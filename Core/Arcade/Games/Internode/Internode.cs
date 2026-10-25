@@ -751,13 +751,7 @@ public sealed class Internode : IArcadeGame
                     _cues |= Cue.Miss;
                     // Only the routes that orb was on are spoilt. A missed branch-1 orb says nothing about
                     // branch 2, which the player may be running; a missed shared orb spoils both.
-                    foreach (int g in RoutesOf(e))
-                    {
-                        _phraseFailed[g] = true;
-                        // The ring comes off every orb of a spoilt route: it can no longer pay.
-                        foreach (var o in _routeEvents[g])
-                            if (o.Kind != InternodeEventKind.Mine) o.GoldCandidate = false;
-                    }
+                    foreach (int g in RoutesOf(e)) SpoilRoute(g);
                 }
                 continue;
             }
@@ -784,6 +778,22 @@ public sealed class Internode : IArcadeGame
                     if (HitMine(e)) return;   // the section was just replaced; the array we are walking is gone
                     break;
             }
+        }
+    }
+
+    /// <summary>Route <paramref name="route"/> can no longer pay, so the ring comes off its orbs — except an orb
+    /// that still sits on a clean route. ⚠ A choice phrase's shared rejoin orb is the last orb of every branch:
+    /// passing the untaken branch spoils that branch's route, and stripping the shared orb with it would take the
+    /// prize off the branch the player is running clean.</summary>
+    private void SpoilRoute(int route)
+    {
+        _phraseFailed[route] = true;
+        foreach (var o in _routeEvents[route])
+        {
+            if (o.Kind == InternodeEventKind.Mine) continue;
+            bool live = false;
+            foreach (int g in RoutesOf(o)) if (!_phraseFailed[g]) { live = true; break; }
+            if (!live) o.GoldCandidate = false;
         }
     }
 
@@ -1088,17 +1098,13 @@ public sealed class Internode : IArcadeGame
             _rng = snap.Rng;
             _section = section;
             IndexPhrases();
-            // Every passed plane counts as caught, so a route one orb from its end has its gold restored.
+            // Every passed plane counts as caught; the gold this earns is restored below, once the spoilt routes are known.
             foreach (var e in _section.Events)
                 if (e.Z <= snap.Z)
                 {
                     e.Taken = true;
                     if (e.Kind != InternodeEventKind.Mine) foreach (int g in RoutesOf(e)) _phraseTaken[g]++;
                 }
-            for (int g = 0; g < _phraseOrbs.Length; g++)
-                if (_phraseOrbs[g] >= Math.Max(2, InternodeTuning.BonusMinOrbs) && _phraseTaken[g] == _phraseOrbs[g] - 1)
-                    foreach (var e in _routeEvents[g])
-                        if (e.Kind != InternodeEventKind.Mine && !e.Taken) e.Bonus = true;
             Z = snap.Z;
             // Bounded on the way in like every other restored double: the file is treated as hostile, and an
             // absurd camera turn would send the sky somewhere it can never pan back from.
@@ -1130,12 +1136,13 @@ public sealed class Internode : IArcadeGame
             // caught, so without this a resumed section would read as perfect however it was played.
             if (snap.RouteFailed is { } failed && failed.Length == _phraseFailed.Length)
                 for (int g = 0; g < failed.Length; g++)
-                {
-                    if (!failed[g]) continue;
-                    _phraseFailed[g] = true;
+                    if (failed[g]) SpoilRoute(g);
+            // ⚠ After the spoilt routes: a spoilt branch counts its passed planes as caught too, and must not turn
+            // the shared rejoin orb gold for the branch that was run with a miss.
+            for (int g = 0; g < _phraseOrbs.Length; g++)
+                if (!_phraseFailed[g] && _phraseOrbs[g] >= Math.Max(2, InternodeTuning.BonusMinOrbs) && _phraseTaken[g] == _phraseOrbs[g] - 1)
                     foreach (var e in _routeEvents[g])
-                        if (e.Kind != InternodeEventKind.Mine) { e.GoldCandidate = false; e.Bonus = false; }
-                }
+                        if (e.Kind != InternodeEventKind.Mine && !e.Taken) e.Bonus = true;
             if (snap.High > HighScore) HighScore = snap.High;
             ResetPresentation();
             Phase = (InternodePhase)snap.Phase;

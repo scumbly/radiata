@@ -61,19 +61,20 @@ internal sealed class ScriptGameSession : IDisposable
             inBufferSize: 64 * 1024, outBufferSize: 64 * 1024,
             pipeSecurity: BuildPipeSecurity(ac));
 
-        var job = new ScriptJobObject();
+        ScriptJobObject? job = null;
         Process proc;
         try
         {
+            job = new ScriptJobObject();
             proc = ScriptContainerLauncher.Launch(helperExe, $"\"{helperExe}\" {pipeName}", ac, job);
         }
         catch (Exception ex)
         {
-            job.Dispose(); pipe.Dispose();
+            job?.Dispose(); pipe.Dispose();
             return (null, $"helper launch failed: {ex.Message}");
         }
 
-        var session = new ScriptGameSession(proc, job, pipe);
+        var session = new ScriptGameSession(proc, job!, pipe);
         string stage = "connect";
         try
         {
@@ -143,7 +144,7 @@ internal sealed class ScriptGameSession : IDisposable
                     Kill($"faulted {ConsecutiveFaultLimit} consecutive frames with no draw: {resp.message}");
                     return PumpStatus.Violation;   // the coordinator's restart ladder → give-up card
                 }
-                SendNext(elapsedMs, input);
+                SendNext(game, elapsedMs, input);
                 return PumpStatus.Fault;
             }
             _consecutiveFaults = 0;
@@ -161,13 +162,13 @@ internal sealed class ScriptGameSession : IDisposable
             LastBuffer = resp.commands!;
             game.ApplyKvWrites(resp.kvWrites);
             game.EnqueueCues(resp.cues);
-            SendNext(elapsedMs, input);
+            SendNext(game, elapsedMs, input);
             return PumpStatus.Ok;
         }
 
         if (_pending is null)
         {
-            SendNext(elapsedMs, input);
+            SendNext(game, elapsedMs, input);
             return PumpStatus.Ok;
         }
 
@@ -190,8 +191,9 @@ internal sealed class ScriptGameSession : IDisposable
         return PumpStatus.Ok;   // reuse LastBuffer this frame
     }
 
-    private void SendNext(double elapsedMs, ScriptInput input)
+    private void SendNext(ScriptArcadeGame game, double elapsedMs, ScriptInput input)
     {
+        game.AcknowledgeEdges();   // the edges in `input` are now on the wire; frames that miss keep theirs
         var req = new ScriptRequest { type = "frame", frameId = _nextFrameId++, elapsedMs = elapsedMs, input = input };
         _pendingSentAt = Stopwatch.GetTimestamp();
         _pending = SendReceiveAsync(req);

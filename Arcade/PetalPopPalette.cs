@@ -115,7 +115,7 @@ internal static class PetalPopPalette
     public static readonly Brush Ink = B(0xF2, 0xEE, 0xE3);
     public static readonly Color InkColour = Rgb(0xF2, 0xEE, 0xE3);
     public static readonly Brush InkDim = B(0xB8, 0xB3, 0xA6);
-    /// <summary>The title card's ✕ BEGIN line and the end cards' ✕ AGAIN / ○ EXIT row: pure white, as on every game's cards.</summary>
+    /// <summary>The title card's ✕ BEGIN line and the end cards' ✕ AGAIN line: pure white, as on every game's cards.</summary>
     public static readonly Brush BeginInk = B(0xFF, 0xFF, 0xFF);
     /// <summary>The PETALPOP wordmark's face: the core's gold (<see cref="Core"/>).</summary>
     public static readonly Brush TitleFace = B(0xF2, 0xB8, 0x4B);

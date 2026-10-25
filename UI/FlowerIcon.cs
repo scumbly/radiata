@@ -11,7 +11,8 @@ namespace ControllerWheel;
 /// taskbar theme) and, via <see cref="Geometry"/> / the per-part geometries, as the SHAPE of the animated
 /// About-screen logo, the wheels on/off toast (FlowerMark), and the Quit-button / Add-picker glyph
 /// (PackIconHelper "RadiataFlower"). The exe/taskbar .ico is not generated here — Assets\radiata.ico is
-/// built by tools\make-radiata-ico.ps1 from Assets\flower-mark-color-unique.png.</summary>
+/// rendered by tools\make-radiata-ico.ps1 from Assets\flower-mark-color-edged.svg (the mark with a lighter
+/// inside edge on each shape; every in-app copy stays un-edged).</summary>
 internal static class FlowerIcon
 {
     // The mark's authored colours, verbatim from Assets\flower-mark-color-unique.svg. The About-screen

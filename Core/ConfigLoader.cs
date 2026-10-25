@@ -93,8 +93,8 @@ public sealed class ConfigLoader : IDisposable
     }
 
     /// <summary>True when config.json on disk is byte-identical to our last write, i.e. the watcher is
-    /// echoing us rather than reporting an external edit. Clears the marker on a match so a later external
-    /// edit still reloads even if the user reverts the file to exactly what we wrote. Any read failure
+    /// echoing us rather than reporting an external edit. Clears the marker on any completed comparison so a
+    /// later external edit still reloads even if the user reverts the file to exactly what we wrote. Any read failure
     /// answers false — reloading redundantly is harmless; skipping a real external edit is not.</summary>
     private static bool IsEchoOfOurWrite()
     {
@@ -102,9 +102,11 @@ public sealed class ConfigLoader : IDisposable
         if (expected is null) return false;
         try
         {
-            if (!string.Equals(File.ReadAllText(ConfigPath), expected, StringComparison.Ordinal)) return false;
+            bool match = string.Equals(File.ReadAllText(ConfigPath), expected, StringComparison.Ordinal);
+            // Cleared on a mismatch too: our write is superseded, so a later revert to exactly our text is a
+            // real edit. Our own writes are atomic, so a mismatch is never a half-written echo.
             Volatile.Write(ref _lastWrittenJson, null);
-            return true;
+            return match;
         }
         catch (Exception ex)
         {

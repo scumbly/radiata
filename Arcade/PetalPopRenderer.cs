@@ -797,10 +797,8 @@ internal sealed class PetalPopRenderer : IArcadeRenderer
             c.X, c.Y - field * 0.10, ppd, field * 1.6);
         ArcadeChrome.DrawCentered(dc, Loc.F(UiText.Arcade.Best, g.HighScore.ToString("N0")), ArcadeChrome.Ui(Math.Max(9, field * 0.050)), PetalPopPalette.Accent,
             c.X, c.Y + field * 0.20, ppd, field * 1.5);
-        // Both ways out of the end screen, so ✕ is not the only door the card admits to.
-        ArcadeChrome.DrawCenteredRow(dc,
-            [$"{ControllerButtons.Text(PadButton.Cross)}  {Loc.T(UiText.Arcade.Again)}",
-             $"{ControllerButtons.Text(PadButton.Circle)}  {Loc.T(UiText.Arcade.ExitGame)}"],
+        // ⚠ No ○ EXIT prompt: ○ leaves every game from anywhere, so an end card doesn't restate it.
+        ArcadeChrome.DrawCentered(dc, $"{ControllerButtons.Text(PadButton.Cross)}  {Loc.T(UiText.Arcade.Again)}",
             ArcadeChrome.Ui(Math.Max(9, field * 0.047)), PetalPopPalette.BeginInk, c.X, c.Y + field * 0.40, ppd);
     }
 

@@ -52,18 +52,31 @@ public sealed class ScriptArcadeGame : IArcadeGame
         _pendingEdges |= (input.DPadPressed & 0xF) << 4;   // DPad bits 1..8 → wire bits 16..128
     }
 
-    /// <summary>Drained by the session once per rendered frame. Returns the elapsed sim time the
-    /// helper should cover and the packed input, then clears the aggregate. Zero steps (guard up,
-    /// ready beat, pause) returns 0 elapsed — the session then skips the request entirely, so a
-    /// paused script genuinely stops.</summary>
+    /// <summary>Read once per rendered frame. Returns the elapsed sim time since the last read (the
+    /// steps are consumed, so a frame the helper misses is not replayed) and the packed input. Press
+    /// edges are NOT cleared here: they stay pending until <see cref="AcknowledgeEdges"/>, which the
+    /// session calls when it actually sends a request, so a press made during a missed frame is
+    /// delivered on the next send. Zero steps (guard up, ready beat, pause) returns 0 elapsed — the
+    /// session still sends a zero-elapsed draw-only frame.</summary>
     public (double ElapsedMs, ScriptInput Input) TakePendingFrame()
     {
         double elapsed = _pendingSteps * ScriptProtocol.StepSeconds * 1000.0;
         int buttons = _pendingEdges
             | (_crossDown ? ScriptInput.CrossDown : 0)
             | (_squareDown ? ScriptInput.SquareDown : 0);
-        _pendingSteps = 0; _pendingEdges = 0;
+        _pendingSteps = 0;
         return (elapsed, new ScriptInput { stickX = _stickX, stickY = _stickY, buttons = buttons });
+    }
+
+    /// <summary>The edges returned by the last <see cref="TakePendingFrame"/> have been sent.</summary>
+    public void AcknowledgeEdges() => _pendingEdges = 0;
+
+    /// <summary>Drops pending presses and held levels so input made before a pause cannot fire on resume.</summary>
+    public void CancelInput()
+    {
+        _pendingEdges = 0;
+        _crossDown = _squareDown = false;
+        _stickX = _stickY = 0;
     }
 
     // ── KV store (the persistence contract) ──────────────────────────────────

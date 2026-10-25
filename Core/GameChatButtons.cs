@@ -805,19 +805,36 @@ public static class GameChatButtons
         if (NormalizedNoTextChat.Contains(norm)) return true;
         // Containment relaxation as in Lookup, so an edition/subtitle difference doesn't defeat the guard —
         // but floored at RelaxedMinimumLength. This list holds names as short as "Peak", and a four-letter
-        // substring would condemn every unrelated title that happens to contain it. Lookup can afford the
-        // unfloored version because its keys are the ones it would return anyway; here a false match
-        // silently disables a working slice.
+        // substring would condemn every unrelated title that happens to contain it. Lookup applies the same
+        // floor: a false match there types into the wrong game, here it silently disables a working slice.
         foreach (var known in NormalizedNoTextChat)
-        {
-            if (Math.Min(known.Length, norm.Length) < RelaxedMinimumLength) continue;
-            if (known.Contains(norm, StringComparison.Ordinal) || norm.Contains(known, StringComparison.Ordinal))
-                return true;
-        }
+            if (RelaxedMatch(known, norm)) return true;
         return false;
     }
 
     private const int RelaxedMinimumLength = 8;
+
+    /// <summary>Relaxed containment in either direction: the shorter name must reach
+    /// <see cref="RelaxedMinimumLength"/> and sit inside the longer one on word boundaries, so "squad"
+    /// never matches "star wars squadrons" and "eco" never matches "ecoquest".</summary>
+    private static bool RelaxedMatch(string a, string b)
+    {
+        if (Math.Min(a.Length, b.Length) < RelaxedMinimumLength) return false;
+        return ContainsWord(a, b) || ContainsWord(b, a);
+    }
+
+    private static bool ContainsWord(string container, string sub)
+    {
+        for (int i = container.IndexOf(sub, StringComparison.Ordinal); i >= 0;
+             i = container.IndexOf(sub, i + 1, StringComparison.Ordinal))
+        {
+            int end = i + sub.Length;
+            if ((i == 0 || !char.IsLetterOrDigit(container[i - 1])) &&
+                (end == container.Length || !char.IsLetterOrDigit(container[end])))
+                return true;
+        }
+        return false;
+    }
 
     // Keyed by the NORMALIZED name (see Normalize), so Lookup is a single dictionary hit for the common
     // case and only falls to the relaxed scan for the "extra punctuation/subtitle" cases (e.g. a
@@ -850,8 +867,7 @@ public static class GameChatButtons
         // Relaxed pass: whichever direction contains the other (a launcher/storefront name is often a
         // superset — trailing edition/subtitle text — or a subset — a shortened display name).
         foreach (var kv in NormalizedMap)
-            if (kv.Key.Contains(norm, StringComparison.Ordinal) || norm.Contains(kv.Key, StringComparison.Ordinal))
-                return kv.Value;
+            if (RelaxedMatch(kv.Key, norm)) return kv.Value;
 
         return null;
     }

@@ -854,8 +854,14 @@ public partial class App : Application
         }
         _lastTrigger = TriggerModes.FnButtons;
         _fnInvokeAt  = Environment.TickCount64;
+        bool wasUp = _overlayVisible;
         InvokeWheel(leftHanded);
+        if (!wasUp) _fnOpener = leftHanded ? FnSide.Left : FnSide.Right;
     }
+
+    private enum FnSide { None, Left, Right }
+    /// <summary>Which Fn button opened the current wheel (or silent invoke); cleared when it closes.</summary>
+    private FnSide _fnOpener;
 
     /// <summary>The both-Fn enable/disable chord, shared by both Fn handlers (the second press to land runs
     /// it). Traces the two ways it declines, which are otherwise indistinguishable from a dead chord.</summary>
@@ -968,6 +974,7 @@ public partial class App : Application
 
     private void ShowOverlay(ActiveWheel wheel)
     {
+        _fnOpener = FnSide.None;   // FnInvoke re-stamps it once this returns
         // A fresh pull supersedes any in-flight fade/readout; PrepareIntro resets both layers.
         var slices = wheel == ActiveWheel.A ? _config.Current.WheelA : _config.Current.WheelB;
         // Onboarding "try it for a spin": if the user's real wheel is empty (they declined the starter
@@ -1314,6 +1321,7 @@ public partial class App : Application
         _overlay?.SetScrubber(false, 0);
         _overlay?.SetClickable(false);
         _overlayVisible = false;
+        _fnOpener = FnSide.None;
         RemoveMouseWatch();
         UpdateInputCapture();
     }
@@ -2275,10 +2283,10 @@ public partial class App : Application
             {
                 if (_emulator.Active)
                 {
-                    // Should be unreachable now that the guard withholds the pad while unverified. If
+                    // Unreachable: the guard withholds the pad while unverified. If
                     // something still raced one up, don't probe a polluted count — reset and re-run
                     // capture, whose guard stops the pad and re-arms. The deadline bounds this loop
-                    // (the old silent reset-and-return here is what let the gate ping-pong forever).
+                    // (a silent reset-and-return here would let the gate ping-pong forever).
                     if (gen == _btProbeGen && _btObserved == BtObserved.Pending) _btObserved = BtObserved.None;
                     Trace.WriteLine("[Capture] BT isolation probe deferred — a virtual pad is up; re-running capture to clear the window");
                     UpdateInputCapture();
@@ -2486,7 +2494,9 @@ public partial class App : Application
         _editPickGame  = false;   // don't bounce back into edit — fully tear down
         _silentWheel   = null;
         _fnLeftDown    = _fnRightDown = false;
-        StopDpadVolumeRepeat();                 // a drop mid-hold sends no D-pad release — stop the repeat
+        _fnOpener      = FnSide.None;
+        ClearChordLights();                   // a drop sends no releases, so the practice lights would stay lit
+        StopDpadVolumeRepeat();               // a drop mid-hold sends no D-pad release — stop the repeat
         StopDpadMixRepeat();
         StopDpadMicRepeat();
         ReleaseTaskSwitcher();                  // never leave Alt stranded down
@@ -3436,6 +3446,7 @@ public partial class App : Application
         if (_onboardingWindow is { IsLoaded: true } && _oobePreview) return;   // edit off during onboarding, but LIVE on the final step (preview off = wheels live)
         if (_overlay is null || !_overlayVisible || Editing || _browserOpen) return;
         if (_activeSlices is null) return;
+        CancelTaskSwitcher();   // Alt must not stay down for the whole edit session
         _overlay.ClearPreview();
         _previewArmed = -1;
         _overlay.EditMaxSlices = MaxSlices;   // current cap → legend hides "add" at it
@@ -3477,6 +3488,7 @@ public partial class App : Application
         if (_onboardingWindow is { IsLoaded: true } && _oobePreview) return;   // edit off during onboarding, but LIVE on the final step (preview off = wheels live)
         if (_silentWheel is not { } wheel || _overlay is null || Editing || _overlayVisible) return;
         _silentWheel = null;   // consumed
+        CancelTaskSwitcher();
 
         var slices = wheel == ActiveWheel.A ? _config.Current.WheelA : _config.Current.WheelB;
         SetMaterialFlags(_config.Current.System.SliceMaterial);
@@ -4262,10 +4274,10 @@ public partial class App : Application
     /// startup and on every config reload, so switching gesture(s)/activation applies live. Several
     /// gestures can be enabled at once — the open wheel's toggle-vs-hold is decided per-invoke in
     /// <see cref="ToggleStyleFor"/>, so no single global toggle flag is set here.</summary>
-    private void ApplyTriggerConfig()
+    private void ApplyTriggerConfig(ControllerKind? kind = null)
     {
         var sys   = _config.Current.System;
-        var modes = sys.TriggerModesFor(DetectedControllerKind);
+        var modes = sys.TriggerModesFor(kind ?? DetectedControllerKind);
         bool toggle = sys.TriggerActivation == "toggle";
         _fnOpensWheels = modes.Contains(TriggerModes.FnButtons);
         // The Fn path fires on release only in hold activation (Fn is never the touchpad); the interpreter
@@ -4280,13 +4292,13 @@ public partial class App : Application
     /// gesture; a never-seen kind's card is ALSO clickable and opens setup (its live trigger
     /// practice). Kind is the unit of comparison on purpose — a device's instance id is unreliable across
     /// a BT⇄USB transport change, so a same-kind reconnect/flap deliberately says nothing.</summary>
-    private void AnnounceControllerKind()
+    private void AnnounceControllerKind(ControllerKind? connectedKind = null)
     {
+        var kind = connectedKind ?? DetectedControllerKind;
         // The wizard owns the first-controller experience while it's open — just track the kind so we don't
         // re-announce the same pad the moment onboarding closes.
-        if (_onboardingWindow is { IsLoaded: true }) { _activeKind = DetectedControllerKind; return; }
+        if (_onboardingWindow is { IsLoaded: true }) { _activeKind = kind; return; }
 
-        var kind = DetectedControllerKind;
         var sys  = _config.Current.System;
 
         // First run of this feature (nothing ever recorded): silently adopt the attached pad as the baseline
@@ -4835,6 +4847,17 @@ public partial class App : Application
         if (back) NativeMethods.keybd_event(NativeMethods.VK_SHIFT, 0, NativeMethods.KEYEVENTF_KEYUP, IntPtr.Zero);
     }
 
+    /// <summary>Let Alt up WITHOUT switching: Esc dismisses the switcher while Alt is still down. For
+    /// surfaces that take over from an open wheel (edit, Settings), where landing on a window is wrong.
+    /// Idempotent.</summary>
+    private void CancelTaskSwitcher()
+    {
+        if (!_altTabHeld) return;
+        NativeMethods.keybd_event((byte)NativeMethods.VK_ESCAPE, 0, 0, IntPtr.Zero);
+        NativeMethods.keybd_event((byte)NativeMethods.VK_ESCAPE, 0, NativeMethods.KEYEVENTF_KEYUP, IntPtr.Zero);
+        ReleaseTaskSwitcher();
+    }
+
     /// <summary>Let Alt up, committing whatever the switcher has highlighted. Idempotent.</summary>
     private void ReleaseTaskSwitcher()
     {
@@ -4977,7 +5000,11 @@ public partial class App : Application
             CheckOnClick = true,
             Checked      = StartupManager.IsEnabled,
         };
-        startupItem.CheckedChanged += (_, _) => StartupManager.SetEnabled(startupItem.Checked);
+        startupItem.CheckedChanged += (_, _) =>
+        {
+            if (!StartupManager.SetEnabled(startupItem.Checked))
+                startupItem.Checked = StartupManager.IsEnabled;   // re-sync to the registry's truth
+        };
         menu.Items.Add(startupItem);
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(Loc.T(UiText.Tray.Exit), null, (_, _) => ExitApp());
@@ -5220,6 +5247,7 @@ public partial class App : Application
 
     private void OpenSettings()
     {
+        CancelTaskSwitcher();   // opened from an open wheel: Alt must not stay down over the Settings window
         if (_settingsWindow is null || !_settingsWindow.IsLoaded)
         {
             _settingsWindow = new SettingsWindow(_config, slice => _executor.Execute(slice), DetectedControllerKind, RunOnboarding)
@@ -5535,6 +5563,11 @@ public partial class App : Application
     /// reports a summary via the tray.</summary>
     private async void InstallDriversInteractive()
     {
+        if (_driverEngineInFlight is not null)
+        {
+            Trace.WriteLine("[DriverSetup] install already running; ignoring the repeat request");
+            return;
+        }
         List<string> log;
         try { log = await RunDriverEngineAsync(); }
         // async void (a menu/button handler) — an escaping exception would take the process down.
@@ -5553,7 +5586,19 @@ public partial class App : Application
     /// HidHide → elevated self-whitelist → re-capture. Returns the human-readable result log. Shared by the
     /// Advanced-tab "Install/Repair Drivers" (MessageBox) and the onboarding wizard (inline).</summary>
     private bool _driverEngineSucceeded;
-    private async Task<List<string>> RunDriverEngineAsync()
+    private Task<List<string>>? _driverEngineInFlight;
+
+    /// <summary>Single-flight: a second caller during the elevated install awaits the run already in progress
+    /// (same log, same <c>_driverEngineSucceeded</c>) instead of starting an overlapping one.</summary>
+    private Task<List<string>> RunDriverEngineAsync() => _driverEngineInFlight ??= RunDriverEngineOnceAsync();
+
+    private async Task<List<string>> RunDriverEngineOnceAsync()
+    {
+        try { return await RunDriverEngineCoreAsync(); }
+        finally { _driverEngineInFlight = null; }
+    }
+
+    private async Task<List<string>> RunDriverEngineCoreAsync()
     {
         _driverEngineSucceeded = false;
         var log = new List<string>();
@@ -5786,7 +5831,12 @@ public partial class App : Application
         // In normal-app mode (tray icon off) the Settings window IS the app's only presence,
         // so closing it quits — like a normal windowed app.
         if (!_shuttingDown && !_config.Current.System.ShowTrayIcon)
+        {
             ExitApp();
+            // ExitApp returns without exiting when the discard-edits prompt is declined; with no tray icon
+            // the process would otherwise linger invisible, still cloaking.
+            if (!_shuttingDown) OpenSettings();
+        }
     }
 
     /// <summary>Tray on → tray icon, no taskbar entry. Tray off → no tray icon; the Settings
@@ -6556,10 +6606,19 @@ public partial class App : Application
         var (_, sc) = _toasts.BuildAndShowToast(ink =>
             { flower.MarkBrush = terraMark ? RadialMenuControl.TerraBlobFill : ink; return flower; },
             scr.X + scr.Width / 2.0, scr.Y + scr.Height / 2.0,
-            initialScale: on ? 0 : 1);   // On starts collapsed (scale in before the bloom); Off starts full
+            initialScale: on && !MotionPolicy.Reduce ? 0 : 1);   // On starts collapsed (scale in before the bloom); Off starts full
 
         const double circleMs = 150;
         double flowerMs = flower.PlayDurationMs;
+        if (MotionPolicy.Reduce)
+        {
+            // No spring: the circle stays at full scale and the mark shows fully formed for both states —
+            // Off dimmed so the two stay distinguishable — then the toast's opacity-only close.
+            flower.Play(true);
+            if (!on) flower.Opacity = 0.45;
+            _toasts.StartToastClose(on ? 450 : 600);
+            return;
+        }
         if (on)   // circle scales in from nothing, THEN the flower blooms
         {
             ScaleToast(sc, 0, 1, 0, circleMs, System.Windows.Media.Animation.EasingMode.EaseOut, amplitude: 0.9);
@@ -7360,6 +7419,16 @@ public partial class App : Application
         // Unhide (not Release): un-cloak without Release's GC.Collect/WaitForPendingFinalizers, which could
         // hang a ProcessExit handler. Un-cloaking doesn't need the exclusive-handle release that GC forces.
         try { _hidHide.Unhide(); } catch { /* dying anyway — best effort */ }
+        // A held Alt (d-pad switcher) would outlive the process and turn every keystroke into an accelerator.
+        try
+        {
+            if (_altTabHeld)
+            {
+                _altTabHeld = false;
+                NativeMethods.keybd_event(NativeMethods.VK_MENU, 0, NativeMethods.KEYEVENTF_KEYUP, IntPtr.Zero);
+            }
+        }
+        catch { /* dying anyway — best effort */ }
     }
 
     private void TearDown()
@@ -7405,8 +7474,8 @@ public partial class App : Application
         Microsoft.Win32.SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
         Microsoft.Win32.SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
         _controller.Dispose();
+        _emulator.Dispose();   // disconnect the virtual pad first so the physical pad is never exposed beside it
         _hidHide.Dispose();    // un-cloak the DualSense (never leave it hidden after we exit)
-        _emulator.Dispose();   // disconnect the virtual pad if emulation was on
         _trayIcon?.Dispose();
 
         _showWait?.Unregister(null);

@@ -225,9 +225,10 @@ public sealed class ObsClient
         string? password;
         lock (_configLock) { port = _port; password = _password; }
 
+        ClientWebSocket? socket = null;
         try
         {
-            var socket = new ClientWebSocket();
+            socket = new ClientWebSocket();
             using var cts = new CancellationTokenSource(ConnectTimeoutMs);
             await socket.ConnectAsync(new Uri($"ws://localhost:{port}"), cts.Token);
 
@@ -243,6 +244,7 @@ public sealed class ObsClient
         catch (Exception ex)
         {
             Trace.WriteLine($"[Obs] connect failed: {ex.Message}");
+            try { socket?.Dispose(); } catch { }
             return null;
         }
     }

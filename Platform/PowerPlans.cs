@@ -14,9 +14,10 @@ public static class PowerPlans
     /// default for Toggle Power Plan's plan B when a legacy single-plan config doesn't carry one.</summary>
     public const string BalancedGuid = "381b4222-f694-41f0-9685-ff5bb260df2e";
 
-    // "Power Scheme GUID: 381b4222-... (Balanced) *"  — the trailing * marks the active scheme.
+    // "Power Scheme GUID: 381b4222-... (Balanced) *"  — the trailing * marks the active scheme. The label
+    // before the GUID is localized, so the pattern anchors on the GUID and its parenthesised name only.
     private static readonly Regex LineRx =
-        new(@"Power Scheme GUID:\s*([0-9a-fA-F-]{36})\s*\(([^)]*)\)(\s*\*)?", RegexOptions.Compiled);
+        new(@"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\s*\(([^)]*)\)(\s*\*)?", RegexOptions.Compiled);
 
     /// <summary>All power schemes (empty list on any failure). The active scheme is flagged.</summary>
     public static IReadOnlyList<Plan> List()

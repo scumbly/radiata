@@ -37,7 +37,7 @@ Radiata is free and GPLv3, built by one person. If it earns a place on your gami
   is held neutral while a wheel is open, so the game underneath never sees your menu input. No game hooks
   or injection.
 - **Passthru Mode**: a global or per-game bypass for input isolation.
-- **Customizable**: eight built-in wheel materials and matching sound sets.
+- **Customizable**: eight built-in wheel materials, each paired with a sound set.
 - **Accessibility**: Reduce motion, narration of the wheel and Game Grid, swap-sides and toggle
   activation, and a choice of one-stick or either-stick aiming. The whole app and its Help are available
   in English, Spanish, German, Japanese and Arabic.
@@ -105,7 +105,8 @@ dotnet publish ControllerWheel.csproj -c Release -r win-x64 --self-contained tru
 and `.github/workflows/release.yml` runs it, and signs the result, when a `v<version>` tag is pushed.
 
 The Arcade's licensed sound effects are not in this repository (see
-[`THIRD-PARTY-LICENSES.md`](THIRD-PARTY-LICENSES.md)), so a build from source has a silent Arcade.
+[`THIRD-PARTY-LICENSES.md`](THIRD-PARTY-LICENSES.md)), so a build from source has the Arcade's music but
+no sound effects.
 
 Short engineering notes for each subsystem start at [`docs/README.md`](docs/README.md).
 
@@ -145,6 +146,7 @@ terms permitted by GPLv3 §7 (attribution preservation and a trademark reservati
 **"Radiata"™ and the Radiata flower mark™ are trademarks of Jesse Tarter-Holden** and are not licensed by the
 GPL. Forks must use a different name and mark; see [`TRADEMARK.md`](TRADEMARK.md).
 
-Steam, Xbox, GOG Galaxy, Ubisoft Connect, Epic Games, Battle.net, itch.io, Playnite, and Discord are
+Steam, Xbox, GOG Galaxy, Ubisoft Connect, Epic Games, Battle.net, Amazon Games, EA, itch.io, Playnite,
+SteamGridDB, OBS Studio, and Discord are
 trademarks of their respective owners. Radiata is an independent tool and is not affiliated with, endorsed
 by, or sponsored by any of them.

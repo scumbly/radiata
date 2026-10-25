@@ -75,6 +75,9 @@ public sealed class CrashReportWindow : Window
             FontFamily = new FontFamily("Consolas"),
             FontSize = 11.5,
             AcceptsReturn = true,
+            // The report is English technical text: under a right-to-left window it must not mirror, or its
+            // trailing punctuation jumps to the start of each line.
+            FlowDirection = System.Windows.FlowDirection.LeftToRight,
         };
         Grid.SetRow(box, 1);
         root.Children.Add(box);

@@ -30,9 +30,13 @@ public sealed class TriggerModesConverter : JsonConverter<Dictionary<string, Lis
                     break;
                 case JsonTokenType.StartArray:                      // current form: a set of gestures
                     while (reader.Read() && reader.TokenType != JsonTokenType.EndArray)
+                    {
                         if (reader.TokenType == JsonTokenType.String && reader.GetString() is { } s
                             && !string.IsNullOrWhiteSpace(s) && !list.Contains(s))
                             list.Add(s);
+                        else
+                            reader.Skip();                          // nested array/object: consume it whole
+                    }
                     break;
                 case JsonTokenType.Null:
                     break;                                          // no gestures for this kind

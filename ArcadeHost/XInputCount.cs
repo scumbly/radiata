@@ -12,7 +12,7 @@ namespace ControllerWheel.ArcadeHost;
 /// its view is exactly the consumer's. No jail, no pipe, no script engine — four XInputGetState polls.
 ///
 /// Exit code: 10 + the maximum simultaneous pad count seen (10–14). Anything else is an error — the
-/// 10-offset keeps counts unambiguous next to the pipe mode's 1/2 failure codes.</summary>
+/// 10-offset keeps counts unambiguous next to the pipe mode's 0–4 exit codes.</summary>
 internal static class XInputCount
 {
     [StructLayout(LayoutKind.Sequential)]

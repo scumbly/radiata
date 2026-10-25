@@ -138,7 +138,7 @@ internal sealed class InternodeRenderer : IArcadeRenderer
     private static double EdgeWeight(double zv) =>
         Math.Max(EdgeWeightFloor, 1.2 * DepthShare(zv));
 
-    /// <summary>How much of its own colour a depth-weighted line (rim seam, gap lip, gravity seam) shows at view
+    /// <summary>How much of its own colour a depth-weighted line (rim seam, gap lip) shows at view
     /// depth <paramref name="zv"/>: the floor's own <see cref="DistanceBrightness"/>, so the lines darken with the
     /// track they edge, but never under <see cref="EdgeFadeFloor"/> — a lip is judged from a long way off.</summary>
     private static double EdgeFade(double zv) => Math.Max(EdgeFadeFloor, DistanceBrightness(R(zv)));
@@ -343,7 +343,6 @@ internal sealed class InternodeRenderer : IArcadeRenderer
                 {
                     DrawRing(dc, c, S, g, i, far, holes);
                     DrawSeamSegment(dc, c, S, g, i, far, holes);
-                    DrawGravitySeam(dc, c, S, g, i, far, holes);
                 }
                 far = i;
             }
@@ -1314,40 +1313,6 @@ internal sealed class InternodeRenderer : IArcadeRenderer
             dc.DrawLine(pen, Polar(cb, rb, Math.PI - side * _rim[far] + _tw[far]), Polar(ca, ra, Math.PI - side * _rim[i] + _tw[i]));
         }
     }
-
-    /// <summary>The checker boundary at exactly 6 o'clock, θ = 0, drawn with the rim's pen rather than the
-    /// checker hairline: the one line on the floor that always marks where gravity pulls, so under a
-    /// twist, a roll or a full tube the player can still read "down" off the track itself. Ring by ring like
-    /// the split edges, so it thins into the distance exactly as they do, and left out over a hole that covers
-    /// the bottom, the way a split edge is left out where a hole reaches its rim.</summary>
-    private static void DrawGravitySeam(DrawingContext dc, Point c, double S, Internode g, int i, int far, int holes)
-    {
-        double zA = _zv[i] - ZLead + g.Z, zB = _zv[far] - ZLead + g.Z;
-        for (int h = 0; h < holes; h++) if (_holes[h].Covers(0, zA) || _holes[h].Covers(0, zB)) return;
-        // Full rim width only at the mouth, where the ring meets the screen's edge; each segment's stroke is
-        // scaled by its own ring radius against the mouth's, so the line tapers into the distance with the
-        // pipe rather than staying one width all the way down. At half the rim line's opacity.
-        double full = S >= 200 ? GravitySeamWidthPx : GravitySeamWidthFinePx;
-        double width = Math.Max(0.5, full * ((_rad[i] + _rad[far]) / 2) / Rmouth);
-        // Light-dark-light: the light stroke at full width, then a dark core over its middle third, leaving a
-        // light line bounding the core on either side.
-        double fade = EdgeFade((_zv[i] + _zv[far]) / 2);
-        var pen = InternodePalette.Stroke(InternodePalette.Towards(GravitySeamColour, fade), width, GravitySeamAlpha);
-        var core = InternodePalette.Stroke(InternodePalette.Towards(GravitySeamCoreColour, fade), width * GravitySeamCoreShare, GravitySeamCoreAlpha);
-        Point ca = StationCentre(c, S, i), cb = StationCentre(c, S, far);
-        Point pa = Polar(cb, _rad[far] * S, Math.PI + _tw[far]), pb = Polar(ca, _rad[i] * S, Math.PI + _tw[i]);
-        dc.DrawLine(pen, pa, pb);
-        dc.DrawLine(core, pa, pb);
-    }
-
-    /// <summary>Twice the rim line's widths (InternodePalette.SplitEdge / SplitEdgeFine), tapered by depth in
-    /// DrawGravitySeam, in the checker hairline's own white a little above its opacity
-    /// (InternodePalette.CheckEdge is 0x13 of 0xFF): the line is read by its width and stripe, not its brightness.</summary>
-    private static readonly Color GravitySeamColour = Colors.White;
-    private const double GravitySeamWidthPx = 8.4, GravitySeamWidthFinePx = 6.0, GravitySeamAlpha = 0.15;
-    /// <summary>The seam's dark core: its share of the seam's width, colour and opacity.</summary>
-    private static readonly Color GravitySeamCoreColour = Colors.Black;
-    private const double GravitySeamCoreShare = 0.36, GravitySeamCoreAlpha = 0.55;
 
     /// <summary>Under the rings, inside every clip: a ring too thin to draw leaves fog, never sky.</summary>
     private static void DrawFog(DrawingContext dc, Point c, double S)

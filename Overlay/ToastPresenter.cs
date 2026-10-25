@@ -338,6 +338,12 @@ internal sealed class ToastPresenter
             });
             // Keyframes, not AutoReverse: reversing ties the fade-out to the fade-in, and the rise needs
             // to be twice as quick as the fall — the star should snap alight, then ease away.
+            if (MotionPolicy.Reduce)   // static stars: no endless twinkle
+            {
+                starHost.Opacity = 0.85;
+                grid.Children.Add(starHost);
+                continue;
+            }
             double outMs = 320 + (k * 5 % 4) * 120;   // 320…680ms
             double inMs  = outMs / 2.0;
             var tw = new System.Windows.Media.Animation.DoubleAnimationUsingKeyFrames

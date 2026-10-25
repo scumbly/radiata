@@ -209,12 +209,14 @@ public partial class App
             // The connected pad may be a DIFFERENT kind than last seen (controller swapped) — apply
             // that kind's trigger gesture set + Fn/chord routing. (The glyph set is re-applied for
             // both connect and disconnect above.)
-            ApplyTriggerConfig();
+            // All three use the kind snapshotted at the connect edge, not the live one, which a fast
+            // connect+drop can already have reset.
+            ApplyTriggerConfig(connectedKind);
             // Tell the user if the controller kind changed (swap / different-than-last-run) or is new,
             // so the silent gesture + glyph switch above isn't a mystery.
-            AnnounceControllerKind();
+            AnnounceControllerKind(connectedKind);
             // An open Settings window edits triggers PER KIND — retarget its builder at the new pad.
-            _settingsWindow?.SetDetectedKind(DetectedControllerKind);
+            _settingsWindow?.SetDetectedKind(connectedKind);
         }
     }
 
@@ -248,9 +250,18 @@ public partial class App
         }
         else
         {
-            if (_holdFires) _silentWheel = null;   // hold-style: the silent (empty-wheel) window ends with the trigger
-            if (_overlayVisible && (_oobePracticeAll ? _oobeFnLive : _fnOpensWheels) && _holdFires) CloseOverlay();   // Toggle: ✕/○ close instead
+            FnReleased(FnSide.Left);
         }
+    }
+
+    /// <summary>Hold-style Fn release: only the Fn that opened the current wheel ends it — a bump of the
+    /// other Fn, or a wheel opened by a chord, leaves it up.</summary>
+    private void FnReleased(FnSide side)
+    {
+        if (!_holdFires || _fnOpener != side) return;
+        _fnOpener = FnSide.None;
+        _silentWheel = null;   // the silent (empty-wheel) window ends with the trigger
+        if (_overlayVisible && (_oobePracticeAll ? _oobeFnLive : _fnOpensWheels)) CloseOverlay();   // Toggle: ✕/○ close instead
     }
 
     private void OnTriggerRight(bool pressed)
@@ -271,8 +282,7 @@ public partial class App
         }
         else
         {
-            if (_holdFires) _silentWheel = null;   // hold-style: the silent (empty-wheel) window ends with the trigger
-            if (_overlayVisible && (_oobePracticeAll ? _oobeFnLive : _fnOpensWheels) && _holdFires) CloseOverlay();   // Toggle: ✕/○ close instead
+            FnReleased(FnSide.Right);
         }
     }
 
@@ -432,7 +442,7 @@ public partial class App
         // the other three are single-fire per press — repeating a desktop switch, track skip or
         // window advance while held would run away.
         int lrDir = nibble == 6 ? -1 : nibble == 2 ? +1 : 0;
-        string lrMode = _config.Current.System.DpadHorizontalMode?.ToLowerInvariant() ?? "mixer";
+        string lrMode = _config.Current.System.DpadHorizontalMode?.ToLowerInvariant() ?? "switcher";
         // A Settings change mid-hold dispatches the RELEASE to the new mode's arm, which only stops
         // its own tracker — the old mode's repeat timer would keep scrubbing (mic to 0%, or the mix
         // to one side) for as long as the wheel stayed up. Stop whatever this mode doesn't own first.
@@ -643,9 +653,23 @@ public partial class App
     // ghost wheel. The grid owns input there — ○ backs out of the pick.
     private void InterpreterCancel() { if (_editPickGame) return; CancelOverlay(); }
 
+    // UI-thread only: the practice lights currently lit, so a pad drop (which sends no releases) can clear them.
+    private readonly HashSet<string> _litChordTokens = new();
+
     private void ForwardChordButton(string token, bool pressed)
     {
         if (_oobeChordButtons is null) return;
-        Dispatcher.InvokeAsync(() => _oobeChordButtons?.Invoke(token, pressed));
+        Dispatcher.InvokeAsync(() =>
+        {
+            if (pressed) _litChordTokens.Add(token); else _litChordTokens.Remove(token);
+            _oobeChordButtons?.Invoke(token, pressed);
+        });
+    }
+
+    private void ClearChordLights()
+    {
+        if (_oobeChordButtons is { } chordLights)
+            foreach (var token in _litChordTokens) chordLights(token, false);
+        _litChordTokens.Clear();
     }
 }

@@ -31,7 +31,8 @@ public static class PackageConsent
         try
         {
             if (!File.Exists(LedgerPath)) return [];
-            return JsonSerializer.Deserialize<List<Entry>>(File.ReadAllText(LedgerPath), JsonOpts) ?? [];
+            var entries = JsonSerializer.Deserialize<List<Entry?>>(File.ReadAllText(LedgerPath), JsonOpts) ?? [];
+            return [.. entries.OfType<Entry>()];
         }
         catch (Exception ex)
         {

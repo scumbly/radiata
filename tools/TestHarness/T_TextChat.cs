@@ -75,6 +75,13 @@ internal static class T_TextChat
     {
         H.Group("Text Chat — the foreground guards, and the trace never carries the message");
 
+        // ── Relaxed name match: floored and word-bounded. ────────────────────────────────────────────
+        H.Check("short key never matches a longer title (Squad vs Squadrons)",
+            GameChatButtons.Lookup("STAR WARS: Squadrons") is null);
+        H.Check("edition suffix still matches on a word boundary",
+            GameChatButtons.Lookup("Call of Duty: Black Ops 6 - Vault Edition") == GameChatButtons.Lookup("Call of Duty: Black Ops 6")
+            && GameChatButtons.Lookup("Call of Duty Black Ops 6") is not null);
+
         // ── Try Game Default with NO installed game in front → do nothing at all. ────────────────────
         {
             var p = new StubPlatform { GameName = null };

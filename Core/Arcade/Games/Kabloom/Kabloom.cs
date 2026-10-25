@@ -45,7 +45,14 @@ public sealed class Kabloom : IArcadeGame
     /// it.</summary>
     public double PointerX { get; private set; }
     public double PointerY { get; private set; }
+    /// <summary>The reticle's horizontal offset from the board's middle as a share of the board radius (-1..1),
+    /// eased each step. It drives the board's parallax slide; presentation only, never serialized, and held still
+    /// with the sim.</summary>
+    public double BoardParallax { get; private set; }
     public double ActionPulse { get; private set; }
+    /// <summary>1 the moment a freed gem is counted, falling to 0 over <see cref="KabloomTuning.DiamondPulseSeconds"/>:
+    /// the score plate's gem bulges with it as it takes the stone in. Presentation only, held still with the sim.</summary>
+    public double DiamondPulse { get; private set; }
     public KabloomActionKind LastAction { get; private set; }
     /// <summary>Cells the last reveal opened. Read by the host beside <see cref="Cue.Bloom"/> so a cascade can
     /// sound as big as it was; not serialized (a cue-frame fact).</summary>
@@ -194,30 +201,17 @@ public sealed class Kabloom : IArcadeGame
         return Math.Clamp((PresentationTime - start) / Math.Max(0.05, KabloomTuning.MineFinaleSeconds), -1, 1);
     }
 
-    /// <summary>-1 while resting in its opening, 0..1 while flying to the counter, 1 once counted.
-    /// ⚠ The flight starts <see cref="KabloomTuning.DiamondSwellSeconds"/> after the gem is freed (see
-    /// <see cref="DiamondSwell"/>); this stays −1 for that whole beat.</summary>
+    /// <summary>-1 while resting in its opening, 0..1 while flying to the counter (the flight starts the
+    /// moment the gem is freed), 1 once counted.</summary>
     public double DiamondProgress(int diamond)
     {
         if (diamond < 0 || diamond >= _diamondStarts.Length) return -1;
         if (_diamondCounted[diamond]) return 1;
         double start = _diamondStarts[diamond];
         if (!double.IsFinite(start)) return -1;
-        double flight = PresentationTime - start - KabloomTuning.DiamondSwellSeconds;
+        double flight = PresentationTime - start;
         if (flight < 0) return -1;
         return Math.Clamp(flight / Math.Max(0.1, KabloomTuning.DiamondFlightSeconds), 0, 1);
-    }
-
-    /// <summary>A freed gem spins up and swells to <see cref="KabloomTuning.DiamondSwellScale"/> before it
-    /// flies. −1 while resting or already in flight, else 0..1 across the swell.</summary>
-    public double DiamondSwell(int diamond)
-    {
-        if (diamond < 0 || diamond >= _diamondStarts.Length || _diamondCounted[diamond]) return -1;
-        double start = _diamondStarts[diamond];
-        if (!double.IsFinite(start)) return -1;
-        double swell = PresentationTime - start;
-        double span = Math.Max(0.05, KabloomTuning.DiamondSwellSeconds);
-        return swell >= span ? -1 : Math.Clamp(swell / span, 0, 1);
     }
 
     public Kabloom() => LoadLevel(1);
@@ -329,6 +323,9 @@ public sealed class Kabloom : IArcadeGame
         PhaseTime += dt;
         PresentationTime += dt;
         ActionPulse = Math.Max(0, ActionPulse - dt * 4.5);
+        DiamondPulse = Math.Max(0, DiamondPulse - dt / Math.Max(0.01, KabloomTuning.DiamondPulseSeconds));
+        double parallaxTarget = Math.Clamp(PointerX / Math.Max(1e-6, Grid.Radius), -1, 1);
+        BoardParallax += (parallaxTarget - BoardParallax) * (1 - Math.Exp(-dt / Math.Max(0.01, KabloomTuning.BoardParallaxSeconds)));
         UpdateCollectibles();
         if (!_beeDepartCued && _hitBeeCell >= 0 && PresentationTime >= _hitBeeStart) { _beeDepartCued = true; _cues |= Cue.BeeDeparts; }
         if (Phase is Stage.Failed or Stage.CampaignComplete && !PresentationActive)
@@ -570,6 +567,7 @@ public sealed class Kabloom : IArcadeGame
         ActiveTime = 0;
         LastAction = KabloomActionKind.None;
         ActionPulse = 0;
+        DiamondPulse = 0;
         ResetPresentationState();
         // ⚠ Must come after ResetPresentationState, and be zero rather than PresentationTime: that call
         // rewinds PresentationTime to 0, so arming from the outgoing clock makes TransitionElapsed negative
@@ -793,12 +791,11 @@ public sealed class Kabloom : IArcadeGame
         for (int diamond = 0; diamond < _diamondStarts.Length; diamond++)
         {
             if (_diamondCounted[diamond] || !double.IsFinite(_diamondStarts[diamond])) continue;
-            // Swell then flight — the same two spans DiamondSwell/DiamondProgress divide the wait into, so
-            // the counter ticks exactly as the stone lands rather than a second early.
-            if (PresentationTime < _diamondStarts[diamond]
-                + KabloomTuning.DiamondSwellSeconds + KabloomTuning.DiamondFlightSeconds) continue;
+            // The span DiamondProgress flies over, so the counter ticks exactly as the stone lands.
+            if (PresentationTime < _diamondStarts[diamond] + KabloomTuning.DiamondFlightSeconds) continue;
             _diamondCounted[diamond] = true;
             DiamondScore++;
+            DiamondPulse = 1;
             _cues |= Cue.Diamond;
             if (DiamondScore > HighScore)
             {
@@ -908,7 +905,7 @@ public sealed class Kabloom : IArcadeGame
             DiamondScore = snap.Score;
             _scoreAtLevelStart = snap.ScoreAtLevelStart;
             _levelEntryScores = [.. snap.LevelEntryScores];
-            HighScore = Math.Max(Math.Max(0, snap.High), DiamondScore);
+            HighScore = Math.Max(HighScore, Math.Max(Math.Max(0, snap.High), DiamondScore));
             // A run restored already standing at the best has had its moment; one below it still has it coming.
             _bestBeaten = DiamondScore > 0 && DiamondScore >= Math.Max(0, snap.High);
             CampaignSeed = snap.CampaignSeed == 0 ? CampaignSeed : snap.CampaignSeed;
@@ -924,6 +921,8 @@ public sealed class Kabloom : IArcadeGame
             AcceptedSolve = null;
             Generation = null;
             ResetPresentationState(settleExisting: true);
+            BoardParallax = 0;
+            DiamondPulse = 0;
             snap.Diamonds.CopyTo(_diamondCounted, 0);
 
             Stage requested = snap.Stage is >= 0 and <= (int)Stage.CampaignComplete

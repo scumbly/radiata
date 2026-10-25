@@ -102,16 +102,36 @@ public static class ControllerButtons
         else         DrawLabel(dc, bounds, LabelFor(b), ColourFor(b), ppd);
     }
 
+    // Draw runs per glyph per frame: frozen brushes/pens are cached by their inputs (UI thread only; the
+    // colour set is a handful and the stroke width is bucketed to 0.1 DIP).
+    private static readonly Dictionary<Color, SolidColorBrush> InkBrushes = new();
+    private static readonly Dictionary<(Color, int), Pen> GlyphPens = new();
+
+    private static SolidColorBrush InkBrush(Color c)
+    {
+        if (!InkBrushes.TryGetValue(c, out var br)) { br = new SolidColorBrush(c); br.Freeze(); InkBrushes[c] = br; }
+        return br;
+    }
+
+    private static Pen GlyphPen(Color c, double width)
+    {
+        var key = (c, (int)Math.Round(width * 10));
+        if (!GlyphPens.TryGetValue(key, out var pen))
+        {
+            pen = new Pen(InkBrush(c), key.Item2 / 10.0)
+            { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round, LineJoin = PenLineJoin.Round };
+            pen.Freeze();
+            GlyphPens[key] = pen;
+        }
+        return pen;
+    }
+
     // Geometric PlayStation face symbols — stroked, centred, ~half the button.
     private static void DrawPsShape(DrawingContext dc, Rect b, PadButton btn)
     {
         double cx = b.X + b.Width / 2, cy = b.Y + b.Height / 2;
         double half = b.Height * 0.26;
-        var pen = new Pen(new SolidColorBrush(ColourFor(btn)), Math.Max(1.4, b.Height * 0.085))
-        {
-            StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round, LineJoin = PenLineJoin.Round,
-        };
-        pen.Freeze();
+        var pen = GlyphPen(ColourFor(btn), Math.Max(1.4, b.Height * 0.085));
         switch (btn)
         {
             case PadButton.Cross:
@@ -145,7 +165,7 @@ public static class ControllerButtons
         // Spelled-out labels (Select/Start) have to come down or they'd overrun even the 2.5-aspect pill.
         double fs = b.Height * (text.Length >= 4 ? 0.42 : text.Length >= 2 ? 0.50 : 0.52);
         var ft = new FormattedText(text, CultureInfo.InvariantCulture, System.Windows.FlowDirection.LeftToRight,
-            LabelFace, fs, new SolidColorBrush(colour), ppd);
+            LabelFace, fs, InkBrush(colour), ppd);
         dc.DrawText(ft, new Point(b.X + (b.Width - ft.Width) / 2, b.Y + (b.Height - ft.Height) / 2));
     }
 

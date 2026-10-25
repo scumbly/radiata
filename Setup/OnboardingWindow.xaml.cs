@@ -382,7 +382,7 @@ public partial class OnboardingWindow : Window
         if (_index == _steps.Length - 1)
         {
             if (!_hooks.Finish()) return; // Keep the wizard open if completion could not be saved.
-            StartupManager.SetEnabled(StartupCheck.IsChecked == true);
+            _ = StartupManager.SetEnabled(StartupCheck.IsChecked == true);   // failure is traced inside
             Close();
             return;
         }

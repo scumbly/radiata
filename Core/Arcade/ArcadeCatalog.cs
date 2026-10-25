@@ -76,7 +76,8 @@ public static class ArcadeCatalog
     public static IEnumerable<string> BuiltInTitles => BuiltIn.Append(InternodeEntry).Select(e => e.Title).Distinct();
 
     // Consented drop-in script games, registered at startup and re-registered only after an approval
-    // (PackageInstallFlow), like Materials.RegisterCustom; a token's content never changes within a run.
+    // (PackageInstallFlow), like Materials.RegisterCustom. The manifest carries the consented entry text, so files edited on disk
+    // after consent never run.
     private static Entry[] _scripts = [];
     private static Entry[]? _all, _games;   // caches — the picker reads Games every frame
 

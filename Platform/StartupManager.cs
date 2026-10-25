@@ -69,14 +69,25 @@ public static class StartupManager
         }
     }
 
-    public static void SetEnabled(bool enabled)
+    /// <summary>Writes or removes the Run entry. Returns false when the registry refuses (policy, AV) —
+    /// never throws, so a click handler can't take the app down.</summary>
+    public static bool SetEnabled(bool enabled)
     {
-        using var key = Registry.CurrentUser.OpenSubKey(RunKey, writable: true)
-                        ?? Registry.CurrentUser.CreateSubKey(RunKey);
-        if (enabled) key!.SetValue(ValueName, Format(ExePath));
-        else if (key!.GetValue(ValueName) is string value
-                 && ParseTarget(value).Equals(ExePath, StringComparison.OrdinalIgnoreCase))
-            key.DeleteValue(ValueName, throwOnMissingValue: false);
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(RunKey, writable: true)
+                            ?? Registry.CurrentUser.CreateSubKey(RunKey);
+            if (enabled) key!.SetValue(ValueName, Format(ExePath));
+            else if (key!.GetValue(ValueName) is string value
+                     && ParseTarget(value).Equals(ExePath, StringComparison.OrdinalIgnoreCase))
+                key.DeleteValue(ValueName, throwOnMissingValue: false);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.WriteLine($"[Startup] SetEnabled({enabled}) failed: {ex.Message}");
+            return false;
+        }
     }
 
     /// <summary>Rewrites an entry that already points at this exe but predates the

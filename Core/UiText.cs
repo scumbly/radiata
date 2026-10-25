@@ -96,6 +96,7 @@ public static class UiText
         public const string InstallUpdateTip  = "See what's new and update";
         public const string Checking          = "Checking…";
         public const string UpdateCheckFailed = "Couldn't check for updates. Check your connection and try again.";
+        public const string StartupFailed     = "Couldn't change the Start with Windows setting. Windows or security software blocked the change.";
         public const string NarratorFailed    = "Windows Narrator could not be started on this PC.";
         public const string NarratorCaption   = "Narrator";
 
@@ -694,9 +695,6 @@ public static class UiText
         public const string Best          = "BEST {0}";
         public const string Begin         = "BEGIN";
         public const string Again         = "AGAIN";
-        /// <summary>The end screen's second prompt, beside <see cref="Again"/>: ○ leaves the arcade outright.
-        /// Capitalised to sit in that row — <see cref="Close"/> is the sentence-case one the chrome uses.</summary>
-        public const string ExitGame      = "EXIT";
         public const string BoardClear    = "BOARD CLEAR";
         public const string BoundaryCrossed = "BOUNDARY CROSSED";
         public const string Collected     = "COLLECTED";
@@ -884,6 +882,7 @@ public static class UiText
         public const string UpdateNow       = "Update Now";
         public const string UpdateDownloading = "Downloading Radiata {0}…";
         public const string UpdateDownloadFailed = "The download failed.";
+        public const string UpdateSignatureFailed = "The update's digital signature couldn't be verified, so it was discarded and nothing was installed. Try again later.";
         public const string UpdateInstalling = "Verified. Installing — Radiata will restart itself…";
         public const string UpdateInstallerFailed = "The installer couldn't be started. The downloaded file is at:\n{0}";
 

@@ -65,7 +65,8 @@ public sealed class RadialMenuPeer : FrameworkElementAutomationPeer
     /// else the configured slices. A peer that reported the configured list while a picker was on screen
     /// would be actively misleading.</summary>
     internal IReadOnlyList<WheelSlice> CurrentSlices =>
-        _wheel.EditMode ? _wheel.EditCurrentSlices : _wheel.Slices;
+        _wheel.EditMode && _wheel.EditPhase != WheelStateMachine.EditPhase.Picking
+            ? _wheel.EditCurrentSlices : _wheel.Slices;   // Picking: Slices IS the picker menu
 
     /// <summary>The slice list changed (a new wheel, edit mode starting/ending, a picker level, a structural
     /// edit): drop our per-slice peers AND WPF's own cached child list.
@@ -117,7 +118,7 @@ public sealed class RadialMenuPeer : FrameworkElementAutomationPeer
 
         /// <summary>The resolved label — independent of whether labels are DRAWN (logo/artwork slices
         /// suppress the visible text but always carry the name).</summary>
-        protected override string GetNameCore() => Slice?.Label ?? "";
+        protected override string GetNameCore() => Loc.DefaultLabel(Slice?.Label ?? "");
 
         /// <summary>Carries what the visuals carry: position, and the guarded-hold requirement — the one
         /// property that changes what firing this slice does.</summary>

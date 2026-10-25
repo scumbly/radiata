@@ -46,7 +46,7 @@ public static class ArcadeStore
     /// the cabinet picker. The Arcade Launcher resumes it, so closing and re-opening lands where you left.
     ///
     /// <para>⚠ Defaulted, like every field added since v1: a file from an older build deserializes with it
-    /// null (the picker), which is exactly the old behaviour. That is why the version does not bump.</para>
+    /// null (the picker), which is the picker. That is why the version does not bump.</para>
     ///
     /// <para><paramref name="Cabinet"/> is the cabinet that was frontmost when the picker was dismissed, so
     /// the launcher's carousel re-opens on it rather than the first catalogue entry. Defaulted the same way.</para>

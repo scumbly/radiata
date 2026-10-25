@@ -518,7 +518,7 @@ public partial class SettingsWindow : Window
         var wheelB = WheelBEditor.GetSlices();
         // Layer this save onto the LIVE SystemConfig, not the window-open snapshot. OnConfigReloadedExternal
         // refreshes _systemBase for us, but ONLY while nothing is dirty — so an App-side write that lands
-        // while a Settings edit is pending (the 2 s save timer running: controller-kind memory, OobeVersion,
+        // while a Settings edit is pending (the 500 ms save timer running: controller-kind memory, OobeVersion,
         // GameGridTipSeen, the tray's Passthru Mode toggle, an onboarding re-run writing SystemConfig) was
         // dropped, and this save then reverted it. Every tab's ApplyTo is a `with` over the fields IT owns,
         // so starting from Current keeps those foreign writes and still lets the user's visible edits win.
@@ -683,7 +683,9 @@ public partial class SettingsWindow : Window
                     // Support is English-only: say so where a non-English user would
                     // otherwise write in their own language.
                     + (Loc.Lang == HelpLocalization.DefaultCode ? "" : Loc.T(UiText.Settings.SupportEnglishOnly) + "\r\n\r\n"));
-            Process.Start(new ProcessStartInfo(mailto) { UseShellExecute = true });
+            // The zip is already saved and revealed; a missing mail handler must not report it as failed.
+            try { Process.Start(new ProcessStartInfo(mailto) { UseShellExecute = true }); }
+            catch (Exception ex) { Trace.WriteLine($"[Settings] mailto launch failed: {ex.Message}"); }
             SetStatus(Loc.F(UiText.Settings.LogSaved, Path.GetFileName(zipPath)));
         }
         catch (Exception ex)

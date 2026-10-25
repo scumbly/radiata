@@ -47,7 +47,7 @@ public partial class WheelEditorControl : UserControl
     private string? _labelRaw, _labelShown;
     private const string NewSliceLabel = UiText.DefaultLabels.NewSlice; // default label; auto-filled until the user edits it
     // Dark red flag for the slice COUNT when a saved wheel exceeds the 12-slice cap — only reachable from a
-    // hand-edited config now that the cap is fixed (ConfigLoader's hard ceiling is 32); the count is what's
+    // hand-edited config, since the cap is fixed (ConfigLoader's hard ceiling is 32); the count is what's
     // wrong, not the "/ 12" limit.
     private static readonly Brush OverCapBrush = new SolidColorBrush(Color.FromRgb(0x99, 0x1B, 0x1B));
 

@@ -1200,6 +1200,7 @@ public sealed class WindowsPlatformActions : IPlatformActions
     // GameLibrary.Scan() walks up to 7 storefronts, so it must not run on every fire.
     private static (string dir, string name)[] _chatGames = [];
     private static long _chatGamesAt;
+    private static volatile bool _chatGamesOk;
     private const long ChatGamesTtlMs = 60_000;
     private static int _chatGamesScanRunning;
 
@@ -1229,10 +1230,13 @@ public sealed class WindowsPlatformActions : IPlatformActions
             _chatGames = [.. GameLibrary.Scan()
                 .Where(g => !string.IsNullOrWhiteSpace(g.InstallDir))
                 .Select(g => (GameLibrary.NormalizeDir(g.InstallDir!) + "\\", g.Name))];
+            _chatGamesOk = true;
         }
         catch (Exception ex) { Trace.WriteLine($"[Exec] text-chat: game-dir refresh failed: {ex.Message}"); }
         finally
         {
+            // Stamped on failure too, so a persistently failing scan retries once per TTL off-thread rather
+            // than inline on every call; GameProcessRunning fails closed on !_chatGamesOk meanwhile.
             _chatGamesAt = Environment.TickCount64;
             System.Threading.Interlocked.Exchange(ref _chatGamesScanRunning, 0);
         }
@@ -1285,8 +1289,14 @@ public sealed class WindowsPlatformActions : IPlatformActions
     {
         try
         {
-            if (FindRunningGame() is not { } hit) return false;
-            Trace.WriteLine($"[Sentry] game process running: {hit.Name} ({hit.Exe}) — Steam must not be bounced");
+            var found = FindRunningGame();
+            if (found is null && !_chatGamesOk)
+            {
+                Trace.WriteLine("[Sentry] no game scan has completed — treating as a running game");
+                return true;
+            }
+            if (found is not { } hit) return false;
+            Trace.WriteLine($"[Sentry] game process running:{hit.Name} ({hit.Exe}) — Steam must not be bounced");
             return true;
         }
         catch (Exception ex)

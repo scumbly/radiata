@@ -142,6 +142,11 @@ internal static class SfxEngine
                 using var reader = new WaveFileReader(stream);
 
                 ISampleProvider provider = reader.ToSampleProvider();
+                if (provider.WaveFormat.Channels > 2)
+                {
+                    System.Diagnostics.Trace.WriteLine($"[Sfx] package sound {path} has {provider.WaveFormat.Channels} channels — only mono/stereo supported");
+                    return Array.Empty<float>();
+                }
                 if (provider.WaveFormat.Channels == 1) provider = new MonoToStereoSampleProvider(provider);
                 if (provider.WaveFormat.SampleRate != MixFormat.SampleRate)
                     provider = new WdlResamplingSampleProvider(provider, MixFormat.SampleRate);

@@ -95,7 +95,9 @@
         <Image x:Name="PreviewIcon" Width="67" Height="67" VerticalAlignment="Center" HorizontalAlignment="Center"/>
         <!-- Top stripe: ALWAYS present; text set in UpdatePreview. Deliberately NOT a Button — the whole
              well is the click target, and MouseLeftButtonUp must bubble from here to IconWell's handler. -->
-        <Border x:Name="LogoStripe" Height="16" VerticalAlignment="Top" Background="#3C405B">
+        <!-- ClipToBounds on IconWell clips square, so both strips carry the well's inner radius
+             (CornerRadius 6 minus the 1px border) on their outer corners themselves. -->
+        <Border x:Name="LogoStripe" Height="16" VerticalAlignment="Top" Background="#3C405B" CornerRadius="5,5,0,0">
           <TextBlock x:Name="LogoStripeText" Text="{loc:T Edit}" FontSize="9" Foreground="White"
                      HorizontalAlignment="Center" VerticalAlignment="Center"/>
         </Border>
@@ -104,7 +106,7 @@
              Material vectors rather than text so they match in weight as well as box. The strip appears when
              EITHER control applies and each button hides independently — see UpdateStripVisibility. -->
         <Border x:Name="LogoToolStrip" Height="16" VerticalAlignment="Bottom" Background="#3C405B"
-                Visibility="Collapsed">
+                CornerRadius="0,0,5,5" Visibility="Collapsed">
           <DockPanel LastChildFill="False">
             <Button x:Name="LogoPrevBtn" Style="{StaticResource StripBtn}" DockPanel.Dock="Left"
                     Click="LogoPrev_Click" ToolTip="{loc:T Previous logo}" AutomationProperties.Name="{loc:T Previous logo}">

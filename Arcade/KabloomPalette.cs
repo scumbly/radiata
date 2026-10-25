@@ -63,10 +63,6 @@ internal static class KabloomPalette
     /// wall facing left to <see cref="GemSideRight"/> for one facing right.</summary>
     public static readonly Color GemSideLeft = Color.FromRgb(0x9B, 0x4F, 0x09);
     public static readonly Color GemSideRight = Color.FromRgb(0xC5, 0x5F, 0x08);
-    /// <summary>The seam between two of a gem's side walls. ⚠ Round-joined: a wall on an opening edge that
-    /// stands near-vertical on screen is a very thin quad, and the default mitre at its acute corners is a
-    /// spike several pixels long.</summary>
-    public static readonly Pen GemSideSeam = P(B(0x22, 0x18, 0x14), 0.9, PenLineJoin.Round);
     /// <summary>The bee. White, because the failure screen reveals mines onto <see cref="Revealed"/> — the
     /// dark petal — never onto the pale covered face.</summary>
     public static readonly Brush Mine = B(0xFF, 0xFF, 0xFF);
@@ -148,11 +144,10 @@ internal static class KabloomPalette
 
     /// <summary>A <see cref="DiamondCore"/> stroke at a width quantised to a quarter pixel, cached.
     ///
-    /// <para>⚠ Per gem per frame, twice: the halo opening around a swelling stone and the streak behind a
-    /// flying one. A board clear sends every gem it uncovered at once, so both peak together.</para>
+    /// <para>⚠ Per gem per frame: the streak behind a flying stone. A board clear sends every gem it uncovered
+    /// at once, so they peak together.</para>
     ///
-    /// <para>Butt caps unless asked, matching the halo ring; the flight streak is a line and wants
-    /// round.</para></summary>
+    /// <para>Butt caps unless asked; the flight streak is a line and wants round.</para></summary>
     public static Pen CorePen(double thickness, bool round = false)
     {
         int width = (int)Math.Clamp(Math.Round(thickness * 4), 1, 4000);

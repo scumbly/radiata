@@ -6,7 +6,7 @@ namespace ControllerWheel;
 /// A validated <c>game.json</c> from an Arcade Games drop-in package. Same posture as
 /// <see cref="MaterialPackage.TryParse"/>: every string bounded, null+reason instead of a throw —
 /// a bad package is listed and skipped, never a crash. The manifest carries no code; the entry
-/// file's text is read separately at session start and shipped over the pipe.
+/// file's text (<see cref="EntryText"/>) is captured by the scanner and shipped over the pipe.
 /// </summary>
 public sealed record ScriptGameManifest
 {
@@ -40,6 +40,9 @@ public sealed record ScriptGameManifest
     public required string ContentHash { get; init; }
     /// <summary>Package folder absolute path (set by the scanner).</summary>
     public string DirPath { get; init; } = "";
+    /// <summary>The entry script's text exactly as covered by <see cref="ContentHash"/> (set by the scanner).
+    /// Sessions run these bytes, never a later re-read of the file, so an edit after consent cannot run.</summary>
+    public string? EntryText { get; init; }
 
     public const int FormatVersion = 1;
     public const string ManifestFileName = "game.json";

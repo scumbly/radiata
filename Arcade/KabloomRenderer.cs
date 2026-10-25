@@ -23,6 +23,7 @@ internal sealed class KabloomRenderer : IArcadeRenderer
         dc.DrawEllipse(KabloomPalette.DiscGlow, null, c, fieldRadius * 0.72, fieldRadius * 0.72);
 
         BoardFrame(c, fieldRadius, k, out Point boardOrigin, out double scale);
+        SetParallax(k);
 
         // ── The level transition ──
         // One clock from the sim drives all three parts. The board pulls away on a single sine, so it returns
@@ -132,11 +133,11 @@ internal sealed class KabloomRenderer : IArcadeRenderer
 
         DrawGrowthNotice(dc, c, fieldRadius, k, ppd);
         DrawHud(dc, c, fieldRadius, k, ppd);
-        // ⚠ After the HUD, not before it. A freed gem is the reward and is far too big to pass behind
-        // anything without reading as a mistake — it flies to the plate's own gem, so ending the flight
-        // behind the plate is the one place it must not go. Drawing here also means it reads the gem target
-        // DrawHud wrote this frame rather than last frame's.
+        // ⚠ Plate, then freed gems, then the plate's own gem. A freed gem must never pass behind the plate or
+        // the board — it is the reward — but it lands BEHIND the plate's gem, which takes it in and bulges.
+        // Drawing after DrawHud also means it reads the gem target DrawHud wrote this frame, not last frame's.
         DrawDiamonds(dc, boardOrigin, scale, c, fieldRadius, k, outlines);
+        DrawHudGem(dc, k);
         if (k.IntroActive) DrawIntro(dc, c, fieldRadius, ppd);
         else DrawStage(dc, c, fieldRadius, k, ppd);
         // The struck bee and the outcome card are drawn by DrawOverBezel, after the host pops the playfield clip.
@@ -157,6 +158,7 @@ internal sealed class KabloomRenderer : IArcadeRenderer
     {
         if (game is not Kabloom k) return;
         BoardFrame(c, fieldRadius, k, out Point boardOrigin, out double scale);
+        SetParallax(k);
         DrawStruckBee(dc, c, fieldRadius, boardOrigin, scale, k);
         DrawOutcomeCard(dc, c, fieldRadius, k, ppd);
     }
@@ -442,7 +444,7 @@ internal sealed class KabloomRenderer : IArcadeRenderer
     /// cell it picks is already outlined, and a heavy cursor competes for that job.</summary>
     private static void DrawPointer(DrawingContext dc, Point board, Point origin, double scale, double time)
     {
-        var p = new Point(origin.X + board.X * scale, origin.Y + board.Y * scale);
+        Point p = Screen(new Vec2(board.X, board.Y), origin, scale);
         double breathe = 1 + Math.Sin(time * 4.2) * 0.06;
         // Hollow: a filled dot at this size would cover the very cell it is selecting — the ring lets the
         // tile's own number and colour read straight through it.
@@ -771,11 +773,12 @@ internal sealed class KabloomRenderer : IArcadeRenderer
     {
         int count = k.Grid.Cells.Count;
         if (!ReferenceEquals(_pathGrid, k.Grid) || _pathOrigin != origin || _pathScale != scale
-            || _pathShape.Length != count)
+            || _pathParallax != _parallax || _pathShape.Length != count)
         {
             _pathGrid = k.Grid;
             _pathOrigin = origin;
             _pathScale = scale;
+            _pathParallax = _parallax;
             _pathShape = new Geometry[count];
             _pathOutline = new Vec2[count][];
             for (int i = 0; i < count; i++)
@@ -798,6 +801,7 @@ internal sealed class KabloomRenderer : IArcadeRenderer
     private static object? _pathGrid;
     private static Point _pathOrigin;
     private static double _pathScale = double.NaN;
+    private static double _pathParallax = double.NaN;
     private static Geometry[] _pathShape = [];
     private static Vec2[][] _pathOutline = [];
     private static int[] _pathTopDown = [];
@@ -1011,46 +1015,23 @@ internal sealed class KabloomRenderer : IArcadeRenderer
         }
     }
 
-    /// <summary>The nectar gems a player has just freed — swelling and flying. Drawn over the selector outline
-    /// and the cursor: they are the reward beat, and a stone the size of several cells passing behind a petal
-    /// outline read as a bug. Resting gems are drawn in the petal pass instead (<see cref="DrawRestingGem"/>).</summary>
+    /// <summary>The nectar gems a player has just freed, spinning into the score card. Drawn over the selector
+    /// outline and the cursor: they are the reward beat. Resting gems are drawn in the petal pass instead
+    /// (<see cref="DrawRestingGem"/>).</summary>
     private static void DrawDiamonds(DrawingContext dc, Point boardOrigin, double scale, Point fieldCenter,
                                      double field, Kabloom game, Vec2[][] outlines)
     {
         Point target = DiamondCounterPoint(fieldCenter, field);
+        double size = Math.Max(3.1, scale * 0.235);
+        double hudGem = HudGemRadius(field);
         for (int diamond = 0; diamond < game.Grid.CenterCaps.Count; diamond++)
         {
             double progress = game.DiamondProgress(diamond);
-            if (progress >= 1) continue;
-            // Resting is progress < 0 and swell < 0 — the petal pass draws those.
-            if (progress < 0 && game.DiamondSwell(diamond) < 0) continue;
+            // Resting is progress < 0 — the petal pass draws those.
+            if (progress is < 0 or >= 1) continue;
             // A freed stone leaves from where it stood, raised with the board, so it doesn't drop as it frees.
             double gemLift = KabloomTuning.TileThicknessInGridUnits * scale;
             Point source = Raised(Screen(game.Grid.CenterCaps[diamond].Center, boardOrigin, scale), gemLift);
-            double size = Math.Max(3.1, scale * 0.235);
-            if (progress < 0)
-            {
-                double swell = game.DiamondSwell(diamond);
-
-                // ── Freed, it spins up and swells before it flies ──
-                // Eased so the growth is unhurried at first and arrives at full size right as the flight
-                // takes it — a linear swell peaks in the middle and then just sits there being big.
-                double eased = Smooth(swell);
-                double grown = 1 + (KabloomTuning.DiamondSwellScale - 1) * eased;
-                // ⚠ No spin while it swells. The stone grows in place, still, and only starts turning once it
-                // is on its way — the growth is the beat, and a stone winding up as well was two things
-                // happening where one reads. Held at zero so the flight below can pick it up without a jump.
-                const double spin = 0;
-                // A halo opening around it — the stone still outgrows its cell, and without something
-                // acknowledging that it reads as a drawing error rather than a reward.
-                double halo = size * grown * (1.15 + eased * 0.35);
-                dc.PushOpacity(Math.Clamp(1 - eased * 0.65, 0, 1));
-                dc.DrawEllipse(null, KabloomPalette.CorePen(Math.Max(1, size * 0.10 * (1 - eased * 0.5))),
-                    source, halo, halo);
-                dc.Pop();
-                DrawFreedGem(dc, game, outlines, diamond, boardOrigin, scale, source, grown, spin);
-                continue;
-            }
 
             double t = Smooth(progress);
             Point control = new(fieldCenter.X + field * 0.18, fieldCenter.Y - field * 0.82);
@@ -1058,16 +1039,24 @@ internal sealed class KabloomRenderer : IArcadeRenderer
             Point position = new(
                 oneMinus * oneMinus * source.X + 2 * oneMinus * t * control.X + t * t * target.X,
                 oneMinus * oneMinus * source.Y + 2 * oneMinus * t * control.Y + t * t * target.Y);
-            // Hands off from the swell at exactly the size it ended on and shrinks back to normal as it
-            // travels, so the gem visibly recedes toward the counter.
-            double shrink = KabloomTuning.DiamondSwellScale
-                            + (1 - KabloomTuning.DiamondSwellScale) * Smooth(progress);
-            // In flight it spins hard — the collection is the reward beat, and a stone tumbling as it flies is
-            // the cheapest way to say so. ⚠ From zero, matching the still swell it hands off from: a per-gem
-            // offset or a carried-over angle here would snap the stone round at the halfway point.
-            // The walls flatten over the last stretch so the stone lands flat on the plate's flat gem.
+            // Starts at the resting size, so the hand-off from rest has no seam, and recedes toward the card.
+            // The stone shrinks as it arrives until its whole silhouette — face, rim stroke and all — fits inside the
+            // card's gem, which is drawn over it: the card's gem takes it in rather than wearing it as a dark ring.
+            double grow = 1;
+            if (!Transitioning(game) && NectarShape(game, outlines, diamond, boardOrigin, scale, out _) is not null
+                && _nectarPts[diamond] is { } rest)
+            {
+                double lo = double.MaxValue, hi = double.MinValue;
+                foreach (var p in rest) { lo = Math.Min(lo, p.X); hi = Math.Max(hi, p.X); }
+                grow = 1 + (Math.Clamp(hudGem * 2 * GemLandingFit / Math.Max(1, hi - lo), 0.2, 1) - 1) * t;
+            }
+            // It spins as it flies — the collection is the reward beat, and a stone tumbling is the cheapest
+            // way to say so. ⚠ From zero, matching the resting stone it hands off from: a per-gem offset or a
+            // carried-over angle here would snap the stone round on the first frame.
+            // It keeps the resting wall height until the last stretch, where the walls flatten so the stone
+            // lands flat on the plate's flat gem.
             double depth = 1 - Smooth(Math.Clamp((progress - 0.7) / 0.3, 0, 1));
-            DrawFreedGem(dc, game, outlines, diamond, boardOrigin, scale, position, shrink, progress * 540, depth);
+            DrawFreedGem(dc, game, outlines, diamond, boardOrigin, scale, position, grow, progress * 540, depth);
 
             double trailT = Math.Max(0, t - 0.075);
             double trailOneMinus = 1 - trailT;
@@ -1080,8 +1069,9 @@ internal sealed class KabloomRenderer : IArcadeRenderer
 
     /// <summary>A freed gem as the same raised prism it was at rest — walls, edge and face — centred on
     /// <paramref name="face"/>, scaled by <paramref name="grow"/> and turned by <paramref name="spin"/>
-    /// degrees, wall depth scaling with it and with <paramref name="depth"/> (0 = flat). At grow 1, spin 0 and the stone's own raised centre it matches
-    /// <see cref="DrawRestingGem"/> exactly, so the hand-off from rest has no seam.
+    /// degrees, wall depth scaling with it and with <paramref name="depth"/> (0 = flat). At grow 1, spin 0,
+    /// depth 1 and the stone's own raised centre it matches <see cref="DrawRestingGem"/> exactly, so the
+    /// hand-off from rest has no seam. The side strokes grow with the stone, as the face art's border does.
     ///
     /// <para>Rebuilt per frame rather than cached: the walls depend on which edges face down the screen, which
     /// changes as the stone turns. Only stones in flight pay it — a handful of small polygons each.</para></summary>
@@ -1110,16 +1100,81 @@ internal sealed class KabloomRenderer : IArcadeRenderer
             pts.Add(q);
             top.Add(new Point(q.X, q.Y - lift));
         }
+        Pen seam = GemRimPen(VisibleArtRim(rest) * grow);
         foreach (var wall in NectarWalls(pts, foot, lift))
-            dc.DrawGeometry(wall.Fill, KabloomPalette.GemSideSeam, wall.Shape);
-        dc.DrawGeometry(null, KabloomPalette.NectarEdge, SweepDown(pts, lift));
+            dc.DrawGeometry(wall.Fill, seam, wall.Shape);
+        dc.DrawGeometry(null, seam, SweepDown(pts, lift));
         DrawNectar(dc, Polygon(top), turn + spin, time, spin);
     }
+
+    /// <summary>The kabloom-gem art's dark border as hex apothems (centre to flat), in shares of the sprite's
+    /// width: the art's outer edge and the border's inner edge. Measured from the finished sprite; they must be
+    /// re-measured if the art's border changes.</summary>
+    private const double GemArtRimOuter = 224 / 512.0, GemArtRimInner = 170 / 512.0;
+
+    /// <summary>How far past the opening's bounds the gem art is drawn, as a half-extent share.</summary>
+    private const double GemArtCover = 0.58;
+
+    /// <summary>The on-screen width of the face art's dark border, for an opening of resting
+    /// <paramref name="pts"/>: the painted band at the size <see cref="DrawNectar"/> draws the sprite (Cover-fitted
+    /// to a box <see cref="GemArtCover"/> past the opening's bounds), plus the outer half of the
+    /// <see cref="KabloomPalette.NectarEdge"/> stroke laid over the face's edge. ⚠ The whole band, not a clip
+    /// estimate: on screen the hex art meets its opening nearly edge to edge, so the clip removes almost none of
+    /// it, and an apothem-based guess at the clipped part came out at about half the rim a render shows. Falls
+    /// back to the vector outline's weight when no art is loaded.</summary>
+    private static double VisibleArtRim(Point[] pts)
+    {
+        if (ArcadeSprites.Frame(ArcadeSprites.Slot.KabloomGem) is null) return KabloomPalette.NectarEdge.Thickness;
+        double minX = double.MaxValue, maxX = double.MinValue, minY = double.MaxValue, maxY = double.MinValue;
+        foreach (var p in pts)
+        {
+            minX = Math.Min(minX, p.X); maxX = Math.Max(maxX, p.X);
+            minY = Math.Min(minY, p.Y); maxY = Math.Max(maxY, p.Y);
+        }
+        double sprite = 2 * GemArtCover * Math.Max(maxX - minX, maxY - minY);
+        return (GemArtRimOuter - GemArtRimInner) * sprite + KabloomPalette.NectarEdge.Thickness / 2;
+    }
+
+    /// <summary>A gem's side stroke — wall seams and silhouette — in the face border's colour, quantised to
+    /// quarter pixels and cached frozen. ⚠ Round-joined: a wall on an opening edge that stands near-vertical on
+    /// screen is a very thin quad, and the default mitre at its acute corners is a spike several pixels long.</summary>
+    private static Pen GemRimPen(double width)
+    {
+        int key = (int)Math.Round(Math.Max(0.25, width) * 4);
+        if (_gemRimPens.TryGetValue(key, out var hit)) return hit;
+        var pen = new Pen(KabloomPalette.NectarEdge.Brush, key / 4.0)
+            { LineJoin = PenLineJoin.Round, StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round };
+        pen.Freeze();
+        return _gemRimPens[key] = pen;
+    }
+
+    private static readonly Dictionary<int, Pen> _gemRimPens = [];
 
     /// <summary>Where the HUD plate's gem sits — the target a freed gem flies to. Written by <see cref="DrawHud"/>
     /// each frame (the plate is laid out from its text) and read by the active gem pass, which runs after it.
     /// The fallback below covers the first frame only, before the plate has ever been laid out.</summary>
     private static Point _hudGemPoint;
+    private static double _hudGemSize;
+
+    /// <summary>The score plate's gem radius. ⚠ The one source for it: the plate is laid out from it and the freed
+    /// gems' landing size is aimed at it, so the two can't drift apart.</summary>
+    private static double HudGemRadius(double field) => ArcadeChrome.UiArt(field * 0.036);
+
+    /// <summary>A landing gem's face width as a share of the card gem's diameter. Under 1 because the flying
+    /// stone's rim stroke reaches past its face and the card gem's art sits inside its own box; at 1 the arriving
+    /// silhouette is about a quarter wider than the card gem and shows round it as a dark ring.</summary>
+    private const double GemLandingFit = 0.72;
+
+    /// <summary>The score plate's own gem, drawn after the freed gems so a stone flying in arrives BEHIND it and
+    /// is taken in rather than landing on top. It bulges as each one is counted: an instant swell of
+    /// <see cref="KabloomTuning.DiamondPulseScale"/> that eases back as <see cref="Kabloom.DiamondPulse"/> falls.</summary>
+    private static void DrawHudGem(DrawingContext dc, Kabloom game)
+    {
+        if (_hudGemSize <= 0) return;
+        double pulse = game.DiamondPulse;
+        double size = _hudGemSize * (1 + KabloomTuning.DiamondPulseScale * pulse * pulse);
+        DrawGem(dc, _hudGemPoint, size, game.PresentationTime * KabloomTuning.GemDegreesPerSecond, game.PresentationTime);
+    }
 
     private static Point DiamondCounterPoint(Point c, double field) =>
         _hudGemPoint == default ? new Point(c.X - field * 0.18, c.Y - field * 0.93) : _hudGemPoint;
@@ -1155,9 +1210,11 @@ internal sealed class KabloomRenderer : IArcadeRenderer
     private static object? _nectarGrid;
     private static Point _nectarOrigin;
     private static double _nectarScale = double.NaN;
+    private static double _nectarParallax = double.NaN;
     private static Geometry?[] _nectarShape = [];
     private static double[] _nectarTurn = [];
     private static Geometry?[] _nectarSide = [];
+    private static Pen?[] _nectarRim = [];
     private static NectarWall[]?[] _nectarWalls = [];
     private static Point[]?[] _nectarPts = [];
     private static bool[] _nectarBuilt = [];
@@ -1207,7 +1264,7 @@ internal sealed class KabloomRenderer : IArcadeRenderer
     private static void DrawRestingGem(DrawingContext dc, Point boardOrigin, double scale, Kabloom game,
                                        Vec2[][] outlines, int diamond)
     {
-        if (game.DiamondProgress(diamond) >= 0 || game.DiamondSwell(diamond) >= 0) return;
+        if (game.DiamondProgress(diamond) >= 0) return;
         double gemLift = KabloomTuning.TileThicknessInGridUnits * scale;
         double time = game.PresentationTime + diamond * 0.6;
         // Not during the level flip: the zoom animates `scale`, which is the nectar cache's key, so every
@@ -1218,9 +1275,9 @@ internal sealed class KabloomRenderer : IArcadeRenderer
         {
             if (_nectarWalls[diamond] is { } walls)
                 foreach (var wall in walls)
-                    dc.DrawGeometry(wall.Fill, KabloomPalette.GemSideSeam, wall.Shape);
+                    dc.DrawGeometry(wall.Fill, _nectarRim[diamond], wall.Shape);
             if (_nectarSide[diamond] is { } side)
-                dc.DrawGeometry(null, KabloomPalette.NectarEdge, side);
+                dc.DrawGeometry(null, _nectarRim[diamond], side);
             dc.PushTransform(LiftTransform(gemLift));
             DrawNectar(dc, hole, turn, time);
             dc.Pop();
@@ -1240,14 +1297,16 @@ internal sealed class KabloomRenderer : IArcadeRenderer
     {
         int caps = game.Grid.CenterCaps.Count;
         if (!ReferenceEquals(_nectarGrid, game.Grid) || _nectarOrigin != origin
-            || _nectarScale != scale || _nectarShape.Length != caps)
+            || _nectarScale != scale || _nectarParallax != _parallax || _nectarShape.Length != caps)
         {
             _nectarGrid = game.Grid;
             _nectarOrigin = origin;
             _nectarScale = scale;
+            _nectarParallax = _parallax;
             _nectarShape = new Geometry?[caps];
             _nectarTurn = new double[caps];
             _nectarSide = new Geometry?[caps];
+            _nectarRim = new Pen?[caps];
             _nectarWalls = new NectarWall[]?[caps];
             _nectarPts = new Point[]?[caps];
             _nectarBuilt = new bool[caps];
@@ -1297,6 +1356,7 @@ internal sealed class KabloomRenderer : IArcadeRenderer
         _nectarSide[cap] = SweepDown(pts, KabloomTuning.TileThicknessInGridUnits * scale);
         _nectarWalls[cap] = NectarWalls(pts, centre, KabloomTuning.TileThicknessInGridUnits * scale);
         _nectarPts[cap] = [.. pts];
+        _nectarRim[cap] = GemRimPen(VisibleArtRim(_nectarPts[cap]));
         _nectarTurn[cap] = turn;
         _nectarBuilt[cap] = true;
         return built;
@@ -1330,7 +1390,7 @@ internal sealed class KabloomRenderer : IArcadeRenderer
             dc.PushClip(shape);
             dc.PushTransform(new RotateTransform(turn, pivot.X, pivot.Y));
             // A shade over the bounds, because a turned image has to cover corners the upright box does not.
-            ArcadeSprites.Draw(dc, art, ArcadeSprites.Box(pivot, b.Width * 0.58, b.Height * 0.58),
+            ArcadeSprites.Draw(dc, art, ArcadeSprites.Box(pivot, b.Width * GemArtCover, b.Height * GemArtCover),
                                ArcadeSprites.Fit.Cover);
             dc.Pop();
             dc.Pop();
@@ -1425,10 +1485,11 @@ internal sealed class KabloomRenderer : IArcadeRenderer
         // carries, with side padding wider than the corner radius so the rounding never clips a glyph, and the
         // hang above the rim taken by the field clip.
         double size = ArcadeChrome.Ui(Math.Max(9, field * 0.050));
-        double gem  = ArcadeChrome.UiArt(field * 0.024);
+        double gem  = HudGemRadius(field);
         FormattedText score = ArcadeChrome.Text(game.DiamondScore.ToString(), size, KabloomPalette.FocusIvory, ppd, TextAlignment.Left);
         Rect sInk = score.BuildGeometry(new Point()).Bounds;
         double scoreW = Math.Max(sInk.Width, size * 0.6);
+        // ⚠ No padding for the gem's bulge: a counted gem is meant to swell over the plate's edge.
         double gap = size * 0.40, padX = size * 0.80, padY = size * 0.34;
         double contentW = gem * 2 + gap + scoreW;
         double h = Math.Max(gem * 2, sInk.Height) + padY * 2;
@@ -1437,7 +1498,7 @@ internal sealed class KabloomRenderer : IArcadeRenderer
         double midY = body.Y + h / 2;
         double gemX = body.X + padX + gem;
         _hudGemPoint = new Point(gemX, midY);
-        DrawGem(dc, _hudGemPoint, gem, game.PresentationTime * KabloomTuning.GemDegreesPerSecond, game.PresentationTime);
+        _hudGemSize = gem;
         ArcadeChrome.DrawInkCentered(dc, score, new Point(gemX + gem + gap + scoreW / 2, midY), sInk);
 
         DrawFooterPlate(dc, c, field, game, ppd);
@@ -1561,7 +1622,6 @@ internal sealed class KabloomRenderer : IArcadeRenderer
     /// frame anyway.</summary>
     private static string Cross => ControllerButtons.Text(PadButton.Cross);
     private static string Square => ControllerButtons.Text(PadButton.Square);
-    private static string Circle => ControllerButtons.Text(PadButton.Circle);
 
     /// <summary>Says what just got harder. The two difficulty axes move independently, so a level that widens
     /// the crop and crowds it announces both.
@@ -1690,11 +1750,8 @@ internal sealed class KabloomRenderer : IArcadeRenderer
             // OutcomePromptsReady, which also gates the input — so the card never shows a button the board
             // will not obey, nor obeys one it has not offered.
             if (!game.OutcomePromptsReady) return;
-            y += ArcadeChrome.DrawCentered(dc, failed ? $"{Cross}  {Loc.T(UiText.Arcade.FallBack)}" : $"{Square}  {Loc.T(UiText.Arcade.ReplayFinalField)}",
-                ArcadeChrome.Ui(Math.Max(9, field * 0.047)), Brushes.White, cx, y, ppd) + field * 0.06;
-            // The way out, on every outcome card: the same ○ that leaves the arcade from anywhere else. It
-            // keeps working while this prompt is hidden — that door is the host's and is never barred.
-            ArcadeChrome.DrawCentered(dc, $"{Circle}  {Loc.T(UiText.Arcade.ExitGame)}",
+            // ⚠ No ○ EXIT line: ○ leaves every game from anywhere, so an end card doesn't restate it.
+            ArcadeChrome.DrawCentered(dc, failed ? $"{Cross}  {Loc.T(UiText.Arcade.FallBack)}" : $"{Square}  {Loc.T(UiText.Arcade.ReplayFinalField)}",
                 ArcadeChrome.Ui(Math.Max(9, field * 0.047)), Brushes.White, cx, y, ppd);
         }
     }
@@ -2132,8 +2189,39 @@ internal sealed class KabloomRenderer : IArcadeRenderer
         return geometry;
     }
 
-    private static Point Screen(Vec2 p, Point origin, double scale) =>
-        new(origin.X + p.X * scale, origin.Y + p.Y * scale);
+    // ── The board's perspective and parallax ──────────────────────────────────────────────────────────────
+    // The board reads as tilted away from the viewer with the camera following the reticle: each row's x is
+    // widened about the board's middle by a keystone that grows from 0 at the top edge to BoardKeystone at the
+    // bottom, and shifted by BoardParallaxSlide × the eased offset × (2 × depth − 1): the bottom (near) edge
+    // slides opposite the reticle's side, the top (far) edge the other way, and the middle row holds still, so
+    // the board turns about its middle as the camera follows. y is never changed, so top-down paint order is
+    // plain grid Y. It
+    // lives in Screen() so everything placed through it — petals, outlines, gems, bees, the reticle, numerals —
+    // moves together and stays registered. ⚠ Only grid → screen positions are warped: every thickness (tile
+    // sides, gem walls, LiftTransform, Raised) is a screen-space vertical offset applied AFTER Screen(), so
+    // depth stays straight down the screen. Don't route a lift through this mapping.
+    //
+    // The offset is quantised so a settled board is a cache hit on both per-board caches (_pathParallax,
+    // _nectarParallax) and only the glide rebuilds them. Reduce Motion drops the slide and keeps the keystone,
+    // which is a fixed perspective. Set per frame by SetParallax (Draw and DrawOverBezel).
+    private const double ParallaxStep = 0.005;
+    private static double _parallax;
+    private static double _boardRadius = 1;
+
+    private static void SetParallax(Kabloom k)
+    {
+        _boardRadius = Math.Max(1e-6, k.Grid.Radius);
+        double offset = MotionPolicy.Reduce ? 0 : Math.Round(k.BoardParallax / ParallaxStep) * ParallaxStep;
+        _parallax = Math.Abs(offset) < 1e-9 ? 0 : offset;
+    }
+
+    private static Point Screen(Vec2 p, Point origin, double scale)
+    {
+        double depth = Math.Clamp((p.Y / _boardRadius + 1) / 2, 0, 1);
+        double x = (p.X * (1 + KabloomTuning.BoardKeystone * depth)
+                    - KabloomTuning.BoardParallaxSlide * _parallax * (2 * depth - 1) * _boardRadius) * scale;
+        return new Point(origin.X + x, origin.Y + p.Y * scale);
+    }
 
     // ── How-to-play illustrations ─────────────────────────────────────────────
     // One per bullet on the △ card. Drawn from Kabloom's own palette and its own shapes — a petal here is

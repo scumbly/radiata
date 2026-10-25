@@ -87,7 +87,7 @@ internal static class ScriptSessionCoordinator
     /// killed helper up to <see cref="MaxRestarts"/> times per open.</summary>
     public static IReadOnlyList<ScriptDrawCommand> Pump(ScriptArcadeGame game)
     {
-        var (elapsedMs, input) = game.TakePendingFrame();   // drain even while starting — keeps the backlog bounded
+        var (elapsedMs, input) = game.TakePendingFrame();   // steps are consumed every frame (bounded); press edges persist until a request carries them
 
         if (!_live.TryGetValue(game, out var live))
         {
@@ -173,8 +173,12 @@ internal static class ScriptSessionCoordinator
                     CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
             }
             _live.Clear();
-            _container?.Dispose();
-            _container = null;
+            // An in-flight start may still be using the container's SID; wait it out before FreeSid.
+            lock (_startGate)
+            {
+                _container?.Dispose();
+                _container = null;
+            }
             if (_stagedThisRun && _stagedDir is not null)
                 try { OwnedPayloadCleanup.RemoveMatchingFiles(_stagedDir, AppContext.BaseDirectory, HelperFiles); } catch { /* reused next run */ }
         }
@@ -206,16 +210,11 @@ internal static class ScriptSessionCoordinator
 
     private static string? ReadScript(ScriptGameManifest manifest, out string? error)
     {
-        error = null;
-        try
-        {
-            string path = Path.Combine(manifest.DirPath, manifest.EntryFile);
-            var info = new FileInfo(path);
-            if (!info.Exists) { error = "the game's script file is missing"; return null; }
-            if (info.Length > ScriptGameManifest.MaxEntryFileBytes) { error = "the game's script file is too large"; return null; }
-            return File.ReadAllText(path);
-        }
-        catch (Exception ex) { error = $"couldn't read the game's script: {ex.Message}"; return null; }
+        // The consented bytes captured when the package folder was hashed — never a fresh read of the file.
+        if (manifest.EntryText is { } text) { error = null; return text; }
+        error = "the game's script was not captured at scan time";
+        Trace.WriteLine($"[Arcade] script '{manifest.Token}' refused: no consented script text");
+        return null;
     }
 
     /// <summary>Resolve the helper exe the AppContainer can actually run. Source is the

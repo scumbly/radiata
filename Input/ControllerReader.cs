@@ -303,7 +303,7 @@ public sealed class ControllerReader : IController
     private const byte TriggerPress = 140, TriggerRelease = 100;
 
     // Touchpad finger-0 sub-layout (at the profile's TouchByte): [bit7=no-contact | id][X low 8b]
-    // [X high nibble | Y low nibble][Y high 8b]; the pad resolution used to normalise to [0,1].
+    // [X high nibble | Y low nibble][Y high 8b]; TouchMaxX/Y normalise it to [0,1].
     private const int TouchMaxX = 1920, TouchMaxY = 1080;
 
     // DualSense buttons byte (the same byte as the D-pad): face buttons are the high nibble.
@@ -545,6 +545,7 @@ public sealed class ControllerReader : IController
             ApplyProfileOffsets();   // re-seed Fn/dpad offsets for this device (Edge wizard override wins)
 
             bool wentLive = false;   // did THIS open ever deliver a parseable report? (full BT report, or any USB report)
+            bool openFailed = false;
             try
             {
                 // Shared open — HidHide (App.UpdateInputCapture) handles keeping input out of the game.
@@ -717,14 +718,21 @@ public sealed class ControllerReader : IController
                 // restart, when the interface is briefly inaccessible). An uncaught throw here kills the
                 // reader thread → silently dead controller (no reconnect) AND trips the crash-uncloak path.
                 Trace.WriteLine($"[HID] Device lost: {ex.Message}");
+                openFailed = true;
                 ResetInputState();
                 RaiseConnected(false);
                 _stream = null;
                 Thread.Sleep(1000);
             }
 
-            if (!wentLive) _failedHidPaths[device.DevicePath] = Environment.TickCount64 + 10_000;
-            else _failedHidPaths.TryRemove(device.DevicePath, out _);
+            // An event-driven pad that opened cleanly and sat idle never sends a report, so silence is not
+            // evidence of a dead link: it is neither path-banned nor counted toward the BT wedge escalation.
+            bool idleEventDriven = !_profile.StreamsContinuously && !openFailed;
+            if (!idleEventDriven)
+            {
+                if (!wentLive) _failedHidPaths[device.DevicePath] = Environment.TickCount64 + 10_000;
+                else _failedHidPaths.TryRemove(device.DevicePath, out _);
+            }
 
             // BT wedge escalation (see BtDeadOpenLimit above): hold the device closed past the pad-grace
             // window so the capture layer fully releases before the fresh reconnect re-runs setup.
@@ -738,7 +746,7 @@ public sealed class ControllerReader : IController
                     BtLinkDead?.Invoke(false);
                 }
             }
-            else if (_isBt && ++_btDeadOpens >= BtDeadOpenLimit)
+            else if (!idleEventDriven && _isBt && ++_btDeadOpens >= BtDeadOpenLimit)
             {
                 Trace.WriteLine($"[HID] BT full-report mode never engaged after {_btDeadOpens} opens — " +
                                 $"holding device closed {BtEscalateHoldMs / 1000}s to force a full capture reset");
@@ -1328,5 +1336,5 @@ public sealed class ControllerReader : IController
 
     // ── Helpers ───────────────────────────────────────────────────────────────
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static float Axis(byte raw) => (raw - 128f) / 127f; // 0-255 → [-1, +1]
+    private static float Axis(byte raw) => Clamp1((raw - 128f) / 127f); // 0-255 → [-1, +1]; raw 0 would otherwise be -1.0079
 }
