@@ -16,7 +16,7 @@
   <img src="https://getradiata.app/assets/screenshots/radiata-main.webp" alt="A Radiata wheel open over the desktop beside the Settings window" width="800">
 </p>
 
-Radiata is a powerful radial menu for gaming controllers.
+Radiata is a fun and powerful radial menu for gaming controllers.
 
 ### Support Radiata
 
@@ -53,17 +53,15 @@ Radiata is free and GPLv3, built by one person. If it earns a place on your gami
 
 Release installers are code-signed. Windows
 SmartScreen can still show "Windows protected your PC" for a newly released or rarely downloaded file
-until its publisher has built up reputation. If it does, confirm the file came from one of the two places
-above, then choose **More info**, **Run anyway**. After that, updates are one button from inside the app
+until its publisher has built up reputation. If it does, choose **More info**, **Run anyway**. After that, updates are one button from inside the app
 (**Settings ▸ Advanced ▸ Check for Updates**).
 
 ## How input isolation works
 
 With the optional drivers installed, Radiata presents games with a virtual gamepad (ViGEmBus) and hides
-your physical controller from them (HidHide), then holds the virtual pad neutral while a wheel, the Game
-Grid or an editor is on screen, so menu input never reaches the game. Nothing is hooked into or injected
+your physical controller from them (HidHide). Nothing is hooked into or injected
 into any game; without the drivers, or in Passthru Mode, games keep seeing your controller and Radiata 
-watches alongside it.
+just works alongside it.
 
 ## Drivers
 
@@ -126,7 +124,7 @@ action type, controller support, input isolation and troubleshooting.
 ## Privacy
 
 Radiata has no analytics, no advertising, no account and no persistent identifier. It contacts the
-project's server for 2 things: an update check that sends just the app version, and crash reports
+project's server for an update check that sends just the app version, and crash reports
 that are sent only with your approval. See [`PRIVACY.md`](PRIVACY.md) for the details.
 
 ## Security
