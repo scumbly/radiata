@@ -9,7 +9,7 @@
     <img src="https://img.youtube.com/vi/U_yRv8BtqE0/maxresdefault.jpg" alt="Introducing Radiata (video on YouTube)" width="800">
   </a>
   <br>
-  <em>▶ Watch <a href="https://youtu.be/U_yRv8BtqE0">Introducing Radiata</a> on YouTube</em>
+  <em>▶ Watch <a href="https://youtu.be/iz59Ouqz6-Q">Introducing Radiata</a> on YouTube</em>
 </p>
 
 <p align="center">
